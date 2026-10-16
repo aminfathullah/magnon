@@ -60,27 +60,40 @@ function compression(options = {}) {
 const FRAMEWORK_PRESETS = {
   react: {
     name: "core-vendor",
-    test: /[\\/]node_modules[\\/](react|react-dom|scheduler|prop-types|use-sync-external-store|hoist-non-react-statics|@emotion|redux|react-redux|@reduxjs|immer|@popperjs)[\\/]/,
+    test: /[\\/]node_modules[\\/](react|react-dom|scheduler|prop-types|use-sync-external-store|hoist-non-react-statics|react-is)[\\/]/,
     priority: 50,
     packages: [
       "/react/", "/react-dom/", "/react@", "/react-dom@",
-      "/@emotion/", "/react-is", "/react-transition-group",
-      "/redux", "/react-redux", "/scheduler", "/prop-types",
-      "/use-sync-external-store", "/hoist-non-react-statics",
-      "/@popperjs/", "/popper.js/", "/immer/", "/@reduxjs/"
+      "/react-is/", "/scheduler/", "/prop-types/",
+      "/use-sync-external-store/", "/hoist-non-react-statics/"
     ]
   },
   vue: {
     name: "core-vendor",
-    test: /[\\/]node_modules[\\/](vue|@vue|vue-router|pinia|vuex)[\\/]/,
+    test: /[\\/]node_modules[\\/](vue|@vue\/runtime-core|@vue\/runtime-dom|@vue\/reactivity|@vue\/shared)[\\/]/,
     priority: 50,
-    packages: ["/vue/", "/@vue/", "/vue-router/", "/pinia/", "/vuex/"]
+    packages: [
+      "/vue/", "/@vue/runtime-core/", "/@vue/runtime-dom/",
+      "/@vue/reactivity/", "/@vue/shared/"
+    ]
   },
   svelte: {
     name: "core-vendor",
-    test: /[\\/]node_modules[\\/](svelte|@sveltejs)[\\/]/,
+    test: /[\\/]node_modules[\\/]svelte[\\/]/,
     priority: 50,
-    packages: ["/svelte/", "/@sveltejs/"]
+    packages: ["/svelte/"]
+  },
+  preact: {
+    name: "core-vendor",
+    test: /[\\/]node_modules[\\/]preact[\\/]/,
+    priority: 50,
+    packages: ["/preact/"]
+  },
+  solid: {
+    name: "core-vendor",
+    test: /[\\/]node_modules[\\/]solid-js[\\/]/,
+    priority: 50,
+    packages: ["/solid-js/"]
   }
 };
 
@@ -94,7 +107,7 @@ function codeSplitting(options = {}) {
   const chunks = options.chunks || (options.vendors ? options.vendors : {});
   if (!options.chunks && !options.vendors && !options.groups && !options.framework) {
     Object.entries(options).forEach(([k, v]) => {
-      if (k !== "framework" && k !== "groups" && k !== "chunks" && k !== "vendors" && k !== "priority") {
+      if (k !== "framework" && k !== "groups" && k !== "chunks" && k !== "vendors" && k !== "priority" && k !== "frameworkChunkName") {
         chunks[k] = v;
       }
     });
@@ -102,23 +115,43 @@ function codeSplitting(options = {}) {
 
   const rolldownGroups = [];
   let basePriority = 40;
+  const frameworkName = options.frameworkChunkName || (framework && FRAMEWORK_PRESETS[framework] ? FRAMEWORK_PRESETS[framework].name : "core-vendor");
 
   if (framework && FRAMEWORK_PRESETS[framework]) {
     rolldownGroups.push({
-      name: FRAMEWORK_PRESETS[framework].name,
+      name: frameworkName,
       test: FRAMEWORK_PRESETS[framework].test,
       priority: FRAMEWORK_PRESETS[framework].priority
     });
   }
 
-  Object.entries(chunks).forEach(([chunkName, pkgs]) => {
-    const pkgList = Array.isArray(pkgs) ? pkgs : [pkgs];
-    const escaped = pkgList.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-    const regex = new RegExp(`[\\/]node_modules[\\/](${escaped})`);
+  Object.entries(chunks).forEach(([chunkName, chunkDef]) => {
+    let testPattern;
+    let chunkPriority = Math.max(10, basePriority);
+    let pkgList = [];
+
+    if (chunkDef && typeof chunkDef === "object" && !Array.isArray(chunkDef) && chunkDef.test) {
+      if (typeof chunkDef.priority === "number") {
+        chunkPriority = chunkDef.priority;
+      }
+      if (chunkDef.test instanceof RegExp) {
+        testPattern = chunkDef.test;
+      } else {
+        pkgList = Array.isArray(chunkDef.test) ? chunkDef.test : [chunkDef.test];
+      }
+    } else {
+      pkgList = Array.isArray(chunkDef) ? chunkDef : [chunkDef];
+    }
+
+    if (!testPattern) {
+      const escaped = pkgList.map((p) => (typeof p === "string" ? p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : "")).filter(Boolean).join("|");
+      testPattern = new RegExp(`[\\/]node_modules[\\/](${escaped})`);
+    }
+
     rolldownGroups.push({
       name: chunkName,
-      test: regex,
-      priority: Math.max(10, basePriority)
+      test: testPattern,
+      priority: chunkPriority
     });
     basePriority -= 5;
   });
@@ -134,14 +167,24 @@ function codeSplitting(options = {}) {
     if (framework && FRAMEWORK_PRESETS[framework]) {
       const fwPkgs = FRAMEWORK_PRESETS[framework].packages;
       for (const p of fwPkgs) {
-        if (pkgPath.includes(p)) return FRAMEWORK_PRESETS[framework].name;
+        if (pkgPath.includes(p)) return frameworkName;
       }
     }
 
-    for (const [chunkName, pkgs] of Object.entries(chunks)) {
-      const pkgList = Array.isArray(pkgs) ? pkgs : [pkgs];
-      for (const p of pkgList) {
-        if (pkgPath.includes(p)) return chunkName;
+    for (const [chunkName, chunkDef] of Object.entries(chunks)) {
+      if (chunkDef && typeof chunkDef === "object" && !Array.isArray(chunkDef) && chunkDef.test) {
+        if (chunkDef.test instanceof RegExp && chunkDef.test.test(id)) {
+          return chunkName;
+        }
+        const list = Array.isArray(chunkDef.test) ? chunkDef.test : [chunkDef.test];
+        for (const p of list) {
+          if (typeof p === "string" && pkgPath.includes(p)) return chunkName;
+        }
+      } else {
+        const pkgList = Array.isArray(chunkDef) ? chunkDef : [chunkDef];
+        for (const p of pkgList) {
+          if (typeof p === "string" && pkgPath.includes(p)) return chunkName;
+        }
       }
     }
   };
@@ -342,12 +385,6 @@ function magnonPlugin(options = {}) {
       const cfg = {
         esbuild: false,
         oxc: false,
-        resolve: {
-          alias: [
-            { find: /^@mui\/icons-material\/(?!esm\/)(.*)/, replacement: "@mui/icons-material/esm/$1" },
-            { find: /^@mui\/icons-material$/, replacement: "@mui/icons-material/esm" }
-          ]
-        },
         build: {
           rolldownOptions: {
             onwarn(warning, defaultHandler) {
@@ -357,6 +394,27 @@ function magnonPlugin(options = {}) {
           }
         }
       };
+
+      const injectedAliases = [];
+      if (Array.isArray(options.esmAliases)) {
+        for (const pkg of options.esmAliases) {
+          injectedAliases.push(
+            { find: new RegExp(`^${pkg}/(?!esm/)(.*)`), replacement: `${pkg}/esm/$1` },
+            { find: new RegExp(`^${pkg}$`), replacement: `${pkg}/esm` }
+          );
+        }
+      }
+      if (Array.isArray(options.alias)) {
+        injectedAliases.push(...options.alias);
+      } else if (options.alias && typeof options.alias === "object") {
+        Object.entries(options.alias).forEach(([find, replacement]) => {
+          injectedAliases.push({ find, replacement });
+        });
+      }
+
+      if (injectedAliases.length > 0) {
+        cfg.resolve = { alias: injectedAliases };
+      }
 
       if (codeSplitOpts) {
         const splitHelper = typeof codeSplitOpts === "object" ? codeSplitting(codeSplitOpts) : codeSplitting();

@@ -131,6 +131,9 @@ fn test_modularize_imports_custom() {
             transform: "my-design-system/es/{{member}}".to_string(),
             prevent_full_import: None,
             skip_default_conversion: None,
+            pascal_case_only: None,
+            include: None,
+            exclude: None,
         },
     );
 
@@ -189,6 +192,9 @@ fn test_template_case_transformations() {
             transform: "test-lib/dist/{{snakeCase member}}/{{upperCase member}}".to_string(),
             prevent_full_import: None,
             skip_default_conversion: None,
+            pascal_case_only: None,
+            include: None,
+            exclude: None,
         },
     );
 
@@ -199,4 +205,36 @@ fn test_template_case_transformations() {
     let res = transform_source(code, "test.ts", &options).expect("Transform failed");
     assert!(res.code.contains("test-lib/dist/data_grid_header/DATAGRIDHEADER"));
     assert!(res.code.contains("test-lib/dist/navigation_bar/NAVIGATIONBAR"));
+}
+
+#[test]
+fn test_modularize_imports_filters() {
+    let code = r#"
+        import { Button, Modal, useTheme, InternalHelper } from 'custom-ui';
+        export const app = { Button, Modal, useTheme, InternalHelper };
+    "#;
+
+    let mut rules = HashMap::new();
+    rules.insert(
+        "custom-ui".to_string(),
+        PackageImportRule {
+            transform: "custom-ui/components/{{kebabCase member}}".to_string(),
+            prevent_full_import: None,
+            skip_default_conversion: None,
+            pascal_case_only: Some(true),
+            include: None,
+            exclude: Some(vec!["InternalHelper".to_string()]),
+        },
+    );
+
+    let options = TransformOptions {
+        modularize_imports: rules,
+        ..Default::default()
+    };
+    let res = transform_source(code, "app.tsx", &options).expect("Transform failed");
+    assert!(res.code.contains("custom-ui/components/button"));
+    assert!(res.code.contains("custom-ui/components/modal"));
+    assert!(res.code.contains("useTheme"));
+    assert!(res.code.contains("InternalHelper"));
+    assert!(res.code.contains("custom-ui"));
 }

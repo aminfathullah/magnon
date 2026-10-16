@@ -2,6 +2,9 @@ export interface PackageImportRule {
   transform: string;
   preventFullImport?: boolean;
   skipDefaultConversion?: boolean;
+  pascalCaseOnly?: boolean;
+  include?: string[];
+  exclude?: string[];
 }
 
 export interface TransformOptions {
@@ -128,6 +131,8 @@ export interface MagnonPluginOptions extends TransformOptions {
   compress?: boolean | CompressOptions;
   codeSplitting?: boolean | CodeSplittingOptions | Record<string, string | string[]>;
   splitChunks?: boolean | CodeSplittingOptions | Record<string, string | string[]>;
+  esmAliases?: string[];
+  alias?: any[] | Record<string, string>;
 }
 
 export default function magnon(options?: MagnonPluginOptions): any;

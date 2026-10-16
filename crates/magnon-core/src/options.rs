@@ -19,6 +19,9 @@ pub struct PackageImportRule {
     pub transform: String,
     pub prevent_full_import: Option<bool>,
     pub skip_default_conversion: Option<bool>,
+    pub pascal_case_only: Option<bool>,
+    pub include: Option<Vec<String>>,
+    pub exclude: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

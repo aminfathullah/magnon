@@ -11,7 +11,7 @@ pub use compress::{
     compress_gzip, compress_single_file, BatchCompressResult, CompressOptions, FileCompressResult,
 };
 pub use error::MagnonError;
-pub use modularize::{is_mui_component, optimize_program_imports};
+pub use modularize::optimize_program_imports;
 pub use options::{
     JsxRuntime, PackageImportRule, SourceType, TransformOptions, TransformResult,
 };

@@ -3,6 +3,28 @@ use oxc_allocator::{Allocator, Box as OxcBox};
 use oxc_ast::ast::*;
 use oxc_ast::AstBuilder;
 
+pub enum MemberFilter<'a> {
+    Slice(&'a [&'static str]),
+    Vec(&'a [String]),
+}
+
+impl<'a> MemberFilter<'a> {
+    pub fn contains(&self, item: &str) -> bool {
+        match self {
+            MemberFilter::Slice(slice) => slice.iter().any(|s| *s == item),
+            MemberFilter::Vec(vec) => vec.iter().any(|s| s.as_str() == item),
+        }
+    }
+}
+
+pub struct ResolvedRule<'a> {
+    pub transform: &'a str,
+    pub skip_default_conversion: bool,
+    pub pascal_case_only: bool,
+    pub include: Option<MemberFilter<'a>>,
+    pub exclude: Option<MemberFilter<'a>>,
+}
+
 pub fn optimize_program_imports<'a>(
     allocator: &'a Allocator,
     program: &mut Program<'a>,
@@ -20,7 +42,7 @@ pub fn optimize_program_imports<'a>(
             Statement::ImportDeclaration(mut import_decl) => {
                 let source_str = import_decl.source.value.as_str();
 
-                if let Some((template, is_mui_mat)) = resolve_rule(source_str, options) {
+                if let Some(rule) = resolve_rule(source_str, options) {
                     if let Some(specifiers) = import_decl.specifiers.take() {
                         let mut retained = ast.vec();
                         let mut generated = Vec::new();
@@ -35,21 +57,53 @@ pub fn optimize_program_imports<'a>(
 
                                     let member_name = spec.imported.name().as_str();
 
-                                    if is_mui_mat && !is_mui_component(member_name) {
+                                    if rule.pascal_case_only
+                                        && (!member_name
+                                            .chars()
+                                            .next()
+                                            .map_or(false, |c| c.is_ascii_uppercase())
+                                            || member_name.ends_with("Props"))
+                                    {
                                         retained.push(ImportDeclarationSpecifier::ImportSpecifier(spec));
                                         continue;
                                     }
 
-                                    let target_source = apply_template(template, member_name);
+                                    if let Some(ref ex) = rule.exclude {
+                                        if ex.contains(member_name) {
+                                            retained.push(ImportDeclarationSpecifier::ImportSpecifier(spec));
+                                            continue;
+                                        }
+                                    }
+
+                                    if let Some(ref inc) = rule.include {
+                                        if !inc.contains(member_name) {
+                                            retained.push(ImportDeclarationSpecifier::ImportSpecifier(spec));
+                                            continue;
+                                        }
+                                    }
+
+                                    let target_source = apply_template(rule.transform, member_name);
                                     let span = spec.span;
                                     let local_ident = spec.local.clone();
 
-                                    let default_spec = ast.import_declaration_specifier_import_default_specifier(
-                                        span,
-                                        local_ident,
-                                    );
+                                    let new_spec = if rule.skip_default_conversion {
+                                        ast.import_declaration_specifier_import_specifier(
+                                            span,
+                                            ast.module_export_name_identifier_reference(
+                                                span,
+                                                allocator.alloc_str(member_name),
+                                            ),
+                                            local_ident,
+                                            ImportOrExportKind::Value,
+                                        )
+                                    } else {
+                                        ast.import_declaration_specifier_import_default_specifier(
+                                            span,
+                                            local_ident,
+                                        )
+                                    };
                                     let mut new_specs = ast.vec_with_capacity(1);
-                                    new_specs.push(default_spec);
+                                    new_specs.push(new_spec);
 
                                     let source_str_arena = allocator.alloc_str(&target_source);
                                     let source_literal = ast.string_literal(span, source_str_arena, None);
@@ -61,7 +115,6 @@ pub fn optimize_program_imports<'a>(
                                         Option::<OxcBox<'a, WithClause<'a>>>::None,
                                         ImportOrExportKind::Value,
                                     );
-
                                     generated.push(Statement::ImportDeclaration(new_decl));
                                 }
                                 other => {
@@ -75,9 +128,7 @@ pub fn optimize_program_imports<'a>(
                             new_body.push(Statement::ImportDeclaration(import_decl));
                         }
 
-                        for gen in generated {
-                            new_body.push(gen);
-                        }
+                        new_body.extend(generated);
                     } else {
                         new_body.push(Statement::ImportDeclaration(import_decl));
                     }
@@ -137,7 +188,7 @@ fn to_snake_case(s: &str) -> String {
     for (i, ch) in s.chars().enumerate() {
         if ch.is_uppercase() {
             if i > 0 {
-                out.push('_' );
+                out.push('_');
             }
             out.extend(ch.to_lowercase());
         } else {
@@ -168,9 +219,15 @@ fn to_camel_case(s: &str) -> String {
 fn resolve_rule<'a>(
     source: &str,
     options: &'a TransformOptions,
-) -> Option<(&'a str, bool)> {
+) -> Option<ResolvedRule<'a>> {
     if let Some(rule) = options.modularize_imports.get(source) {
-        return Some((rule.transform.as_str(), false));
+        return Some(ResolvedRule {
+            transform: rule.transform.as_str(),
+            skip_default_conversion: rule.skip_default_conversion.unwrap_or(false),
+            pascal_case_only: rule.pascal_case_only.unwrap_or(false),
+            include: rule.include.as_deref().map(MemberFilter::Vec),
+            exclude: rule.exclude.as_deref().map(MemberFilter::Vec),
+        });
     }
 
     if options
@@ -179,171 +236,138 @@ fn resolve_rule<'a>(
         .any(|pkg| pkg == source)
     {
         return match source {
-            "@tabler/icons-react" => {
-                Some(("@tabler/icons-react/dist/esm/icons/{{member}}.mjs", false))
-            }
-            "@mui/icons-material" => Some(("@mui/icons-material/esm/{{member}}", false)),
-            "@mui/material" => Some(("@mui/material/{{member}}", true)),
-            "@mui/lab" => Some(("@mui/lab/{{member}}", false)),
-            "lucide-react" => Some(("lucide-react/dist/esm/icons/{{kebabCase member}}", false)),
-            "@heroicons/react/24/outline" => Some(("@heroicons/react/24/outline/{{member}}", false)),
-            "@heroicons/react/24/solid" => Some(("@heroicons/react/24/solid/{{member}}", false)),
-            "@phosphor-icons/react" => Some(("@phosphor-icons/react/dist/csr/{{member}}", false)),
-            "lodash" => Some(("lodash/{{member}}", false)),
-            "lodash-es" => Some(("lodash-es/{{member}}", false)),
-            "date-fns" => Some(("date-fns/{{member}}", false)),
-            "ramda" => Some(("ramda/es/{{member}}", false)),
-            "react-bootstrap" => Some(("react-bootstrap/{{member}}", false)),
-            "antd" => Some(("antd/es/{{member}}", false)),
-            "recharts" => Some(("recharts/es6/component/{{member}}", false)),
-            "rxjs" => Some(("rxjs/{{member}}", false)),
-            "rxjs/operators" => Some(("rxjs/operators/{{member}}", false)),
+            "@tabler/icons-react" => Some(ResolvedRule {
+                transform: "@tabler/icons-react/dist/esm/icons/{{member}}.mjs",
+                skip_default_conversion: false,
+                pascal_case_only: false,
+                include: None,
+                exclude: None,
+            }),
+            "@mui/icons-material" => Some(ResolvedRule {
+                transform: "@mui/icons-material/esm/{{member}}",
+                skip_default_conversion: false,
+                pascal_case_only: false,
+                include: None,
+                exclude: None,
+            }),
+            "@mui/material" => Some(ResolvedRule {
+                transform: "@mui/material/{{member}}",
+                skip_default_conversion: false,
+                pascal_case_only: true,
+                include: None,
+                exclude: Some(MemberFilter::Slice(&[
+                    "StyledEngineProvider",
+                    "ThemeProvider",
+                    "CssVarsProvider",
+                    "AlertColor",
+                    "PaletteMode",
+                    "SelectChangeEvent",
+                    "SnackbarCloseReason",
+                    "SxProps",
+                    "Theme",
+                ])),
+            }),
+            "@mui/lab" => Some(ResolvedRule {
+                transform: "@mui/lab/{{member}}",
+                skip_default_conversion: false,
+                pascal_case_only: true,
+                include: None,
+                exclude: None,
+            }),
+            "lucide-react" => Some(ResolvedRule {
+                transform: "lucide-react/dist/esm/icons/{{kebabCase member}}",
+                skip_default_conversion: false,
+                pascal_case_only: false,
+                include: None,
+                exclude: None,
+            }),
+            "@heroicons/react/24/outline" => Some(ResolvedRule {
+                transform: "@heroicons/react/24/outline/{{member}}",
+                skip_default_conversion: false,
+                pascal_case_only: false,
+                include: None,
+                exclude: None,
+            }),
+            "@heroicons/react/24/solid" => Some(ResolvedRule {
+                transform: "@heroicons/react/24/solid/{{member}}",
+                skip_default_conversion: false,
+                pascal_case_only: false,
+                include: None,
+                exclude: None,
+            }),
+            "@phosphor-icons/react" => Some(ResolvedRule {
+                transform: "@phosphor-icons/react/dist/csr/{{member}}",
+                skip_default_conversion: false,
+                pascal_case_only: false,
+                include: None,
+                exclude: None,
+            }),
+            "lodash" => Some(ResolvedRule {
+                transform: "lodash/{{member}}",
+                skip_default_conversion: false,
+                pascal_case_only: false,
+                include: None,
+                exclude: None,
+            }),
+            "lodash-es" => Some(ResolvedRule {
+                transform: "lodash-es/{{member}}",
+                skip_default_conversion: false,
+                pascal_case_only: false,
+                include: None,
+                exclude: None,
+            }),
+            "date-fns" => Some(ResolvedRule {
+                transform: "date-fns/{{member}}",
+                skip_default_conversion: false,
+                pascal_case_only: false,
+                include: None,
+                exclude: None,
+            }),
+            "ramda" => Some(ResolvedRule {
+                transform: "ramda/es/{{member}}",
+                skip_default_conversion: false,
+                pascal_case_only: false,
+                include: None,
+                exclude: None,
+            }),
+            "react-bootstrap" => Some(ResolvedRule {
+                transform: "react-bootstrap/{{member}}",
+                skip_default_conversion: false,
+                pascal_case_only: true,
+                include: None,
+                exclude: None,
+            }),
+            "antd" => Some(ResolvedRule {
+                transform: "antd/es/{{member}}",
+                skip_default_conversion: false,
+                pascal_case_only: false,
+                include: None,
+                exclude: None,
+            }),
+            "recharts" => Some(ResolvedRule {
+                transform: "recharts/es6/component/{{member}}",
+                skip_default_conversion: false,
+                pascal_case_only: true,
+                include: None,
+                exclude: None,
+            }),
+            "rxjs" => Some(ResolvedRule {
+                transform: "rxjs/{{member}}",
+                skip_default_conversion: false,
+                pascal_case_only: false,
+                include: None,
+                exclude: None,
+            }),
+            "rxjs/operators" => Some(ResolvedRule {
+                transform: "rxjs/operators/{{member}}",
+                skip_default_conversion: false,
+                pascal_case_only: false,
+                include: None,
+                exclude: None,
+            }),
             _ => None,
         };
     }
 
     None
-}
-
-pub fn is_mui_component(name: &str) -> bool {
-    matches!(
-        name,
-        "Accordion"
-            | "AccordionActions"
-            | "AccordionDetails"
-            | "AccordionSummary"
-            | "Alert"
-            | "AlertTitle"
-            | "AppBar"
-            | "Autocomplete"
-            | "Avatar"
-            | "AvatarGroup"
-            | "Backdrop"
-            | "Badge"
-            | "BottomNavigation"
-            | "BottomNavigationAction"
-            | "Box"
-            | "Breadcrumbs"
-            | "Button"
-            | "ButtonBase"
-            | "ButtonGroup"
-            | "Card"
-            | "CardActionArea"
-            | "CardActions"
-            | "CardContent"
-            | "CardHeader"
-            | "CardMedia"
-            | "Checkbox"
-            | "Chip"
-            | "CircularProgress"
-            | "ClickAwayListener"
-            | "Collapse"
-            | "Container"
-            | "CssBaseline"
-            | "DefaultPropsProvider"
-            | "Dialog"
-            | "DialogActions"
-            | "DialogContent"
-            | "DialogContentText"
-            | "DialogTitle"
-            | "Divider"
-            | "Drawer"
-            | "Fab"
-            | "Fade"
-            | "FilledInput"
-            | "FormControl"
-            | "FormControlLabel"
-            | "FormGroup"
-            | "FormHelperText"
-            | "FormLabel"
-            | "GlobalStyles"
-            | "Grid"
-            | "Grow"
-            | "Hidden"
-            | "Icon"
-            | "IconButton"
-            | "ImageList"
-            | "ImageListItem"
-            | "ImageListItemBar"
-            | "InitColorSchemeScript"
-            | "Input"
-            | "InputAdornment"
-            | "InputBase"
-            | "InputLabel"
-            | "LinearProgress"
-            | "Link"
-            | "List"
-            | "ListItem"
-            | "ListItemAvatar"
-            | "ListItemButton"
-            | "ListItemIcon"
-            | "ListItemSecondaryAction"
-            | "ListItemText"
-            | "ListSubheader"
-            | "Menu"
-            | "MenuItem"
-            | "MenuList"
-            | "MobileStepper"
-            | "Modal"
-            | "NativeSelect"
-            | "NoSsr"
-            | "OutlinedInput"
-            | "Pagination"
-            | "PaginationItem"
-            | "Paper"
-            | "Popover"
-            | "Popper"
-            | "Portal"
-            | "Radio"
-            | "RadioGroup"
-            | "Rating"
-            | "ScopedCssBaseline"
-            | "Select"
-            | "Skeleton"
-            | "Slide"
-            | "Slider"
-            | "Snackbar"
-            | "SnackbarContent"
-            | "SpeedDial"
-            | "SpeedDialAction"
-            | "SpeedDialIcon"
-            | "Stack"
-            | "Step"
-            | "StepButton"
-            | "StepConnector"
-            | "StepContent"
-            | "StepIcon"
-            | "StepLabel"
-            | "Stepper"
-            | "StyledEngineProvider"
-            | "SvgIcon"
-            | "SwipeableDrawer"
-            | "Switch"
-            | "Tab"
-            | "TabScrollButton"
-            | "Table"
-            | "TableBody"
-            | "TableCell"
-            | "TableContainer"
-            | "TableFooter"
-            | "TableHead"
-            | "TablePagination"
-            | "TableRow"
-            | "TableSortLabel"
-            | "Tabs"
-            | "TextField"
-            | "TextareaAutosize"
-            | "ToggleButton"
-            | "ToggleButtonGroup"
-            | "Toolbar"
-            | "Tooltip"
-            | "Typography"
-            | "Unstable_Grid2"
-            | "Unstable_TrapFocus"
-            | "Zoom"
-            | "useAutocomplete"
-            | "useMediaQuery"
-            | "usePagination"
-            | "useScrollTrigger"
-    )
 }

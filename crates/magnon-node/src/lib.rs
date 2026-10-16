@@ -17,6 +17,9 @@ pub struct JsPackageImportRule {
     pub transform: String,
     pub prevent_full_import: Option<bool>,
     pub skip_default_conversion: Option<bool>,
+    pub pascal_case_only: Option<bool>,
+    pub include: Option<Vec<String>>,
+    pub exclude: Option<Vec<String>>,
 }
 
 #[napi(object)]
@@ -148,6 +151,9 @@ fn to_core_options(js_opts: Option<JsTransformOptions>) -> TransformOptions {
                         transform: v.transform,
                         prevent_full_import: v.prevent_full_import,
                         skip_default_conversion: v.skip_default_conversion,
+                        pascal_case_only: v.pascal_case_only,
+                        include: v.include,
+                        exclude: v.exclude,
                     },
                 );
             }

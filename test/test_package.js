@@ -185,6 +185,15 @@ function testVitePluginHooks() {
   const ignoredRes = plugin.transform('const a = 1;', ignoredId);
   assert.strictEqual(ignoredRes, null);
 
+  const cleanPlugin = magnon({});
+  const cleanCfg = cleanPlugin.config({});
+  assert(!cleanCfg.resolve || !cleanCfg.resolve.alias);
+
+  const aliasedPlugin = magnon({ esmAliases: ['@mui/icons-material'] });
+  const aliasedCfg = aliasedPlugin.config({});
+  assert(aliasedCfg.resolve && Array.isArray(aliasedCfg.resolve.alias));
+  assert(aliasedCfg.resolve.alias.some(a => a.replacement === '@mui/icons-material/esm'));
+
   const compPlugin = magnon.compression();
   assert.strictEqual(compPlugin.name, 'vite-plugin-magnon-compression');
   assert.strictEqual(compPlugin.apply, 'build');
