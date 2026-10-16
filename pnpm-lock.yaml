@@ -26,6 +26,9 @@ importers:
       esbuild:
         specifier: ^0.25.0
         version: 0.25.12
+      javascript-obfuscator:
+        specifier: ^5.9.0
+        version: 5.9.0
       oxc-transform:
         specifier: ^0.54.0
         version: 0.54.0

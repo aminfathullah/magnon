@@ -75,10 +75,13 @@ function createFrameworkPreset(packages, priority = 50, name = "core-vendor") {
 const FRAMEWORK_PRESETS = {
   react: createFrameworkPreset([
     "react", "react-dom", "scheduler", "prop-types",
-    "use-sync-external-store", "hoist-non-react-statics", "react-is"
+    "use-sync-external-store", "hoist-non-react-statics", "react-is",
+    "react-router", "react-router-dom", "@remix-run/router",
+    "react-redux", "@reduxjs/toolkit", "redux", "redux-thunk"
   ]),
   vue: createFrameworkPreset([
-    "vue", "@vue/runtime-core", "@vue/runtime-dom", "@vue/reactivity", "@vue/shared"
+    "vue", "@vue/runtime-core", "@vue/runtime-dom", "@vue/reactivity", "@vue/shared",
+    "vue-router", "pinia", "vuex"
   ]),
   svelte: createFrameworkPreset(["svelte"]),
   preact: createFrameworkPreset(["preact"]),
@@ -199,22 +202,25 @@ function matchesPattern(str, pattern) {
 }
 
 function fixRolldownCjsInterop(code) {
-  if (typeof code !== "string" || !code.includes("__esModule")) return code;
+  if (typeof code !== "string") return code;
   return code
-    .replace(/r\|\|!n\|\|!n\.__esModule\|\|!a\.call\(n,`default`\)/g, "(!n||!n.__esModule||!a.call(n,`default`))")
-    .replace(/r\|\|!n\|\|!n\.__esModule\|\|!a\.call\(n,\"default\"\)/g, '(!n||!n.__esModule||!a.call(n,"default"))')
-    .replace(/r\|\|!n\|\|!n\.__esModule\|\|!a\.call\(n,'default'\)/g, "(!n||!n.__esModule||!a.call(n,'default'))");
+    .replace(/\(!n\|\|!n\.__esModule\|\|!a\.call\(n,`default`\)\)/g, "(!n||!a.call(n,`default`))")
+    .replace(/\(!n\|\|!n\.__esModule\|\|!a\.call\(n,\"default\"\)\)/g, '(!n||!a.call(n,"default"))')
+    .replace(/\(!n\|\|!n\.__esModule\|\|!a\.call\(n,'default'\)\)/g, "(!n||!a.call(n,'default'))")
+    .replace(/r\|\|!n\|\|!n\.__esModule\|\|!a\.call\(n,`default`\)/g, "(!n||!a.call(n,`default`))")
+    .replace(/r\|\|!n\|\|!n\.__esModule\|\|!a\.call\(n,\"default\"\)/g, '(!n||!a.call(n,"default"))')
+    .replace(/r\|\|!n\|\|!n\.__esModule\|\|!a\.call\(n,'default'\)/g, "(!n||!a.call(n,'default'))");
 }
 
 function createAntiDebugTrap(options = {}) {
   const config = typeof options === "number" ? { interval: options } : options;
-  const interval = config.interval || 2000;
-  const maxDepth = config.maxDepth || 30;
+  const interval = Math.max(1000, config.interval || 2000);
+  const maxDepth = config.maxDepth || 20;
   const dimensionThreshold = config.dimensionThreshold || 160;
-  const timeThreshold = config.timeThreshold || 100;
-  const checkDockInterval = Math.max(500, Math.floor(interval / 2));
+  const timeThreshold = config.timeThreshold || 150;
+  const checkDockInterval = Math.max(1000, Math.floor(interval / 2));
 
-  return `(function(){if(typeof window==="undefined")return;var _g=typeof window!=="undefined"?window:(typeof globalThis!=="undefined"?globalThis:self);if(!_g||!_g.document)return;function _trap(c){if(typeof c!=="number")c=0;if(c>${maxDepth})return;try{(function(){return!0;}["constructor"]("debu"+"gger")["call"]("action"));}catch(_){}_trap(c+1);}function _check(){var t=Date.now();(function(){return!0;}["constructor"]("debu"+"gger")["call"]("action"));if(Date.now()-t>${timeThreshold}){try{console.clear();}catch(_){}_trap(0);}}function _checkDock(){try{var wd=_g.outerWidth-_g.innerWidth,hd=_g.outerHeight-_g.innerHeight;if(wd>${dimensionThreshold}||hd>${dimensionThreshold}){try{console.clear();}catch(_){}_trap(0);}}catch(_){}}try{_check();_checkDock();setInterval(_check,${interval});setInterval(_checkDock,${checkDockInterval});_g.addEventListener("resize",_checkDock);_g.addEventListener("focus",_check);_g.addEventListener("keydown",function(e){if(e.key==="F12"||((e.ctrlKey||e.metaKey)&&e.shiftKey&&(e.key==="I"||e.key==="i"||e.key==="J"||e.key==="j"||e.key==="C"||e.key==="c"))||((e.ctrlKey||e.metaKey)&&(e.key==="U"||e.key==="u"))||((e.ctrlKey||e.metaKey)&&(e.key==="S"||e.key==="s"))){try{e.preventDefault();e.stopPropagation();}catch(_){}_trap(0);}},true);}catch(_){}})();\n`;
+  return `(function(){if(typeof window==="undefined")return;var _g=typeof window!=="undefined"?window:(typeof globalThis!=="undefined"?globalThis:self);if(!_g||!_g.document)return;function _trap(c){if(typeof c!=="number")c=0;if(c>${maxDepth})return;try{(function(){return!0;}["constructor"]("debu"+"gger")["call"]("action"));}catch(_){}_trap(c+1);}function _check(){var t=Date.now();(function(){return!0;}["constructor"]("debu"+"gger")["call"]("action"));if(Date.now()-t>${timeThreshold}){try{console.clear();}catch(_){}_trap(0);}}function _checkDock(){try{var wd=_g.outerWidth-_g.innerWidth,hd=_g.outerHeight-_g.innerHeight;if(wd>${dimensionThreshold}||hd>${dimensionThreshold}){try{console.clear();}catch(_){}_trap(0);}}catch(_){}}try{_check();_checkDock();setInterval(_check,${interval});setInterval(_checkDock,${checkDockInterval});_g.addEventListener("resize",_checkDock,{passive:true});_g.addEventListener("focus",_check,{passive:true});_g.addEventListener("keydown",function(e){if(e.key==="F12"||((e.ctrlKey||e.metaKey)&&e.shiftKey&&(e.key==="I"||e.key==="i"||e.key==="J"||e.key==="j"||e.key==="C"||e.key==="c"))||((e.ctrlKey||e.metaKey)&&(e.key==="U"||e.key==="u"))||((e.ctrlKey||e.metaKey)&&(e.key==="S"||e.key==="s"))){try{e.preventDefault();e.stopPropagation();}catch(_){}_trap(0);}},true);}catch(_){}})();\n`;
 }
 
 function obfuscator(pluginOptions = {}) {
@@ -257,8 +263,12 @@ function obfuscator(pluginOptions = {}) {
   }
 
   const userReserved = Array.isArray(obfOptions.reservedNames) ? obfOptions.reservedNames : [];
-  const defaultReserved = ["^[a-zA-Z]$", "^_[a-zA-Z]$", "^__.*", "default", "__esModule"];
+  const defaultReserved = ["^[a-zA-Z]$", "^_[a-zA-Z]$", "^__.*", "default", "__esModule", "module", "exports", "require"];
   obfOptions.reservedNames = Array.from(new Set([...defaultReserved, ...userReserved]));
+
+  const userReservedStrings = Array.isArray(obfOptions.reservedStrings) ? obfOptions.reservedStrings : [];
+  const defaultReservedStrings = ["default", "__esModule", "module", "exports", "require", "prototype"];
+  obfOptions.reservedStrings = Array.from(new Set([...defaultReservedStrings, ...userReservedStrings]));
 
   if (obfOptions.ignoreImports === undefined) {
     obfOptions.ignoreImports = true;
@@ -351,13 +361,13 @@ function obfuscator(pluginOptions = {}) {
     },
 
     async generateBundle(outputOptions, bundle) {
-      const resolved = resolvePackage();
-      if (!resolved) return;
-
       for (const output of Object.values(bundle)) {
         if (!output || output.type !== "chunk" || typeof output.code !== "string") continue;
         output.code = fixRolldownCjsInterop(output.code);
       }
+
+      const resolved = resolvePackage();
+      if (!resolved && !hasDebugProtection) return;
 
       const tasks = [];
       const normalize = (id) => id.split(path.sep).join("/");
@@ -426,7 +436,7 @@ function obfuscator(pluginOptions = {}) {
         tasks.push({ fileName, output });
       }
 
-      if (tasks.length === 0) return;
+      if (!resolved || tasks.length === 0) return;
 
       const t0 = performance.now();
       const taskMap = new Map();

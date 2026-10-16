@@ -309,7 +309,7 @@ function testRolldownCjsInterop() {
   plugin.generateBundle({}, bundle);
   assert.strictEqual(
     bundle["assets/rolldown-runtime-xyz.js"].code,
-    "u=(n,r,o)=>(o=n==null?{}:e(i(n)),l((!n||!n.__esModule||!a.call(n,`default`))?t(o,`default`,{value:n,enumerable:!0}):o,n))"
+    "u=(n,r,o)=>(o=n==null?{}:e(i(n)),l((!n||!a.call(n,`default`))?t(o,`default`,{value:n,enumerable:!0}):o,n))"
   );
   console.log('  PASS: Rolldown CJS/ESM interop patching for default export namespaces');
 }
