@@ -21,7 +21,12 @@ const {
   compressBrotli,
   compressDirectory,
   compressFiles,
+  getDefaultPackageImportPresets,
 } = nativeAddon;
+
+const DEFAULT_OPTIMIZE_IMPORTS = typeof getDefaultPackageImportPresets === "function"
+  ? getDefaultPackageImportPresets()
+  : [];
 
 function compression(options = {}) {
   let resolvedConfig;
@@ -57,44 +62,27 @@ function compression(options = {}) {
   };
 }
 
+function createFrameworkPreset(packages, priority = 50, name = "core-vendor") {
+  const escaped = packages.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  return {
+    name,
+    priority,
+    test: new RegExp(`[\\\\/]node_modules[\\\\/](${escaped})[\\\\/]`),
+    packages: packages.map((p) => `/${p}/`),
+  };
+}
+
 const FRAMEWORK_PRESETS = {
-  react: {
-    name: "core-vendor",
-    test: /[\\/]node_modules[\\/](react|react-dom|scheduler|prop-types|use-sync-external-store|hoist-non-react-statics|react-is)[\\/]/,
-    priority: 50,
-    packages: [
-      "/react/", "/react-dom/", "/react@", "/react-dom@",
-      "/react-is/", "/scheduler/", "/prop-types/",
-      "/use-sync-external-store/", "/hoist-non-react-statics/"
-    ]
-  },
-  vue: {
-    name: "core-vendor",
-    test: /[\\/]node_modules[\\/](vue|@vue\/runtime-core|@vue\/runtime-dom|@vue\/reactivity|@vue\/shared)[\\/]/,
-    priority: 50,
-    packages: [
-      "/vue/", "/@vue/runtime-core/", "/@vue/runtime-dom/",
-      "/@vue/reactivity/", "/@vue/shared/"
-    ]
-  },
-  svelte: {
-    name: "core-vendor",
-    test: /[\\/]node_modules[\\/]svelte[\\/]/,
-    priority: 50,
-    packages: ["/svelte/"]
-  },
-  preact: {
-    name: "core-vendor",
-    test: /[\\/]node_modules[\\/]preact[\\/]/,
-    priority: 50,
-    packages: ["/preact/"]
-  },
-  solid: {
-    name: "core-vendor",
-    test: /[\\/]node_modules[\\/]solid-js[\\/]/,
-    priority: 50,
-    packages: ["/solid-js/"]
-  }
+  react: createFrameworkPreset([
+    "react", "react-dom", "scheduler", "prop-types",
+    "use-sync-external-store", "hoist-non-react-statics", "react-is"
+  ]),
+  vue: createFrameworkPreset([
+    "vue", "@vue/runtime-core", "@vue/runtime-dom", "@vue/reactivity", "@vue/shared"
+  ]),
+  svelte: createFrameworkPreset(["svelte"]),
+  preact: createFrameworkPreset(["preact"]),
+  solid: createFrameworkPreset(["solid-js"]),
 };
 
 function codeSplitting(options = {}) {
@@ -114,7 +102,6 @@ function codeSplitting(options = {}) {
   }
 
   const rolldownGroups = [];
-  let basePriority = 40;
   const frameworkName = options.frameworkChunkName || (framework && FRAMEWORK_PRESETS[framework] ? FRAMEWORK_PRESETS[framework].name : "core-vendor");
 
   if (framework && FRAMEWORK_PRESETS[framework]) {
@@ -125,9 +112,10 @@ function codeSplitting(options = {}) {
     });
   }
 
-  Object.entries(chunks).forEach(([chunkName, chunkDef]) => {
+  const chunkEntries = Object.entries(chunks);
+  chunkEntries.forEach(([chunkName, chunkDef], index) => {
     let testPattern;
-    let chunkPriority = Math.max(10, basePriority);
+    let chunkPriority = Math.max(10, 40 - index * 5);
     let pkgList = [];
 
     if (chunkDef && typeof chunkDef === "object" && !Array.isArray(chunkDef) && chunkDef.test) {
@@ -153,7 +141,6 @@ function codeSplitting(options = {}) {
       test: testPattern,
       priority: chunkPriority
     });
-    basePriority -= 5;
   });
 
   customGroups.forEach((g) => {
@@ -211,55 +198,49 @@ function matchesPattern(str, pattern) {
   return false;
 }
 
-function createAntiDebugTrap(interval = 2000) {
-  return `(function(){if(typeof window==="undefined")return;var _g=typeof window!=="undefined"?window:(typeof globalThis!=="undefined"?globalThis:self);if(!_g||!_g.document)return;function _trap(c){if(typeof c!=="number")c=0;if(c>30)return;try{(function(){return!0;}["constructor"]("debu"+"gger")["call"]("action"));}catch(_){}_trap(c+1);}function _check(){var t=Date.now();(function(){return!0;}["constructor"]("debu"+"gger")["call"]("action"));if(Date.now()-t>100){try{console.clear();}catch(_){}_trap(0);}}function _checkDock(){try{var wd=_g.outerWidth-_g.innerWidth,hd=_g.outerHeight-_g.innerHeight;if(wd>160||hd>160){try{console.clear();}catch(_){}_trap(0);}}catch(_){}}try{_check();_checkDock();setInterval(_check,${interval});setInterval(_checkDock,${Math.max(500, Math.floor(interval / 2))});_g.addEventListener("resize",_checkDock);_g.addEventListener("focus",_check);_g.addEventListener("keydown",function(e){if(e.key==="F12"||((e.ctrlKey||e.metaKey)&&e.shiftKey&&(e.key==="I"||e.key==="i"||e.key==="J"||e.key==="j"||e.key==="C"||e.key==="c"))||((e.ctrlKey||e.metaKey)&&(e.key==="U"||e.key==="u"))||((e.ctrlKey||e.metaKey)&&(e.key==="S"||e.key==="s"))){try{e.preventDefault();e.stopPropagation();}catch(_){}_trap(0);}},true);}catch(_){}})();\n`;
+function createAntiDebugTrap(options = {}) {
+  const config = typeof options === "number" ? { interval: options } : options;
+  const interval = config.interval || 2000;
+  const maxDepth = config.maxDepth || 30;
+  const dimensionThreshold = config.dimensionThreshold || 160;
+  const timeThreshold = config.timeThreshold || 100;
+  const checkDockInterval = Math.max(500, Math.floor(interval / 2));
+
+  return `(function(){if(typeof window==="undefined")return;var _g=typeof window!=="undefined"?window:(typeof globalThis!=="undefined"?globalThis:self);if(!_g||!_g.document)return;function _trap(c){if(typeof c!=="number")c=0;if(c>${maxDepth})return;try{(function(){return!0;}["constructor"]("debu"+"gger")["call"]("action"));}catch(_){}_trap(c+1);}function _check(){var t=Date.now();(function(){return!0;}["constructor"]("debu"+"gger")["call"]("action"));if(Date.now()-t>${timeThreshold}){try{console.clear();}catch(_){}_trap(0);}}function _checkDock(){try{var wd=_g.outerWidth-_g.innerWidth,hd=_g.outerHeight-_g.innerHeight;if(wd>${dimensionThreshold}||hd>${dimensionThreshold}){try{console.clear();}catch(_){}_trap(0);}}catch(_){}}try{_check();_checkDock();setInterval(_check,${interval});setInterval(_checkDock,${checkDockInterval});_g.addEventListener("resize",_checkDock);_g.addEventListener("focus",_check);_g.addEventListener("keydown",function(e){if(e.key==="F12"||((e.ctrlKey||e.metaKey)&&e.shiftKey&&(e.key==="I"||e.key==="i"||e.key==="J"||e.key==="j"||e.key==="C"||e.key==="c"))||((e.ctrlKey||e.metaKey)&&(e.key==="U"||e.key==="u"))||((e.ctrlKey||e.metaKey)&&(e.key==="S"||e.key==="s"))){try{e.preventDefault();e.stopPropagation();}catch(_){}_trap(0);}},true);}catch(_){}})();\n`;
 }
 
 function obfuscator(pluginOptions = {}) {
-  const enable = pluginOptions.enable !== false;
+  const {
+    enable = true,
+    include,
+    exclude,
+    autoExcludeNodeModules = true,
+    obfuscateEntry = true,
+    criticalModuleFragments: criticalFragments = [],
+    criticalFragments: altCriticalFragments = [],
+    minChunkSize = 0,
+    threads,
+    verbose = true,
+    options = {},
+    debugProtection,
+    debugProtectionInterval,
+    ...restPluginOptions
+  } = pluginOptions;
+  const mergedCriticalFragments = criticalFragments.length > 0 ? criticalFragments : altCriticalFragments;
+
   if (!enable) {
     return { name: "vite-plugin-magnon-obfuscator" };
   }
 
-  const include = pluginOptions.include;
-  const exclude = pluginOptions.exclude;
-  const autoExcludeNodeModules = pluginOptions.autoExcludeNodeModules !== false;
-  const obfuscateEntry = pluginOptions.obfuscateEntry !== false;
-  const criticalFragments = pluginOptions.criticalModuleFragments || [];
-  const minChunkSize = pluginOptions.minChunkSize ?? 0;
-  const workerCount = pluginOptions.threads || Math.min(os.cpus()?.length || 4, 8);
-  const verbose = pluginOptions.verbose !== false;
-
-  const obfOptions = Object.assign({}, pluginOptions.options || {});
-  const topLevelKeys = [
-    "compact", "controlFlowFlattening", "controlFlowFlatteningThreshold",
-    "deadCodeInjection", "deadCodeInjectionThreshold", "debugProtection",
-    "debugProtectionInterval", "disableConsoleOutput", "identifierNamesGenerator",
-    "identifiersPrefix", "ignoreImports", "log", "numbersToExpressions",
-    "renameGlobals", "selfDefending", "simplify", "splitStrings",
-    "splitStringsChunkLength", "stringArray", "stringArrayCallsTransform",
-    "stringArrayCallsTransformThreshold", "stringArrayEncoding",
-    "stringArrayIndexShift", "stringArrayRotate", "stringArrayShuffle",
-    "stringArrayWrappersCount", "stringArrayWrappersChainedCalls",
-    "stringArrayWrappersParametersMaxCount", "stringArrayWrappersType",
-    "stringArrayThreshold", "target", "transformObjectKeys", "unicodeEscapeSequence"
-  ];
-
-  for (const k of topLevelKeys) {
-    if (pluginOptions[k] !== undefined && obfOptions[k] === undefined) {
-      obfOptions[k] = pluginOptions[k];
-    }
-  }
-
+  const workerCount = threads || Math.min(os.cpus()?.length || 4, 8);
+  const obfOptions = { ...restPluginOptions, ...options };
   const hasDebugProtection = Boolean(
-    obfOptions.debugProtection !== undefined ? obfOptions.debugProtection : (pluginOptions.debugProtection !== undefined ? pluginOptions.debugProtection : pluginOptions.options?.debugProtection)
+    options.debugProtection ?? debugProtection ?? obfOptions.debugProtection
   );
-  let debugInterval = 2000;
-  const rawInterval = obfOptions.debugProtectionInterval ?? pluginOptions.debugProtectionInterval ?? pluginOptions.options?.debugProtectionInterval;
-  if (typeof rawInterval === "number" && rawInterval > 0) {
-    debugInterval = Math.floor(rawInterval);
-  }
-  obfOptions.debugProtection = false;
+  const rawInterval = options.debugProtectionInterval ?? debugProtectionInterval ?? obfOptions.debugProtectionInterval;
+  const debugInterval = (typeof rawInterval === "number" && rawInterval > 0) ? Math.floor(rawInterval) : 2000;
+
+  delete obfOptions.debugProtection;
   delete obfOptions.debugProtectionInterval;
 
   const userReserved = Array.isArray(obfOptions.reservedNames) ? obfOptions.reservedNames : [];
@@ -369,7 +350,7 @@ function obfuscator(pluginOptions = {}) {
         }
 
         const mods = Object.keys(output.modules || {}).map(normalize);
-        const isCritical = criticalFragments.length > 0 && criticalFragments.some((frag) =>
+        const isCritical = mergedCriticalFragments.length > 0 && mergedCriticalFragments.some((frag) =>
           mods.some((m) => m.includes(frag)) || fileName.includes(frag)
         );
 
@@ -403,13 +384,11 @@ function obfuscator(pluginOptions = {}) {
           }
 
           if (autoExcludeNodeModules) {
-            const isVendorName = /[\\/](vendor|node_modules)[\\/]/i.test(fileName)
-              || fileName.includes("vendor-")
-              || fileName.includes("-vendor")
-              || fileName.includes(".vendor.");
             const allModulesVendor = mods.length > 0 && mods.every((m) => m.includes("/node_modules/"));
+            const isVendorChunk = /[\\/](vendor|node_modules)[\\/]/i.test(fileName)
+              || /(?:^|[._/-])vendor(?:[._/-]|$)/i.test(fileName);
 
-            if (isVendorName || allModulesVendor) {
+            if (allModulesVendor || isVendorChunk) {
               continue;
             }
           }
@@ -544,23 +523,7 @@ function magnonPlugin(options = {}) {
     ? []
     : (Array.isArray(options.optimizePackageImports)
         ? options.optimizePackageImports
-        : [
-            "@tabler/icons-react",
-            "@mui/material",
-            "@mui/icons-material",
-            "@mui/lab",
-            "lucide-react",
-            "@heroicons/react/24/outline",
-            "@heroicons/react/24/solid",
-            "@phosphor-icons/react",
-            "lodash",
-            "lodash-es",
-            "date-fns",
-            "ramda",
-            "react-bootstrap",
-            "antd",
-            "rxjs",
-          ]);
+        : DEFAULT_OPTIMIZE_IMPORTS);
   const modularizeImports = options.modularizeImports || {};
   const cache = new Map();
   let resolvedConfig;
@@ -739,3 +702,5 @@ module.exports.compressGzip = compressGzip;
 module.exports.compressBrotli = compressBrotli;
 module.exports.compressDirectory = compressDirectory;
 module.exports.compressFiles = compressFiles;
+module.exports.getDefaultPackageImportPresets = getDefaultPackageImportPresets;
+module.exports.DEFAULT_OPTIMIZE_IMPORTS = DEFAULT_OPTIMIZE_IMPORTS;

@@ -6,8 +6,8 @@ use napi_derive::napi;
 use magnon_core::{
     compress_directory as core_compress_dir, compress_files_parallel as core_compress_files,
     compress_brotli as core_compress_brotli, compress_gzip as core_compress_gzip,
-    transform_files_parallel, transform_source, BatchCompressResult, BatchResult, CompressOptions,
-    JsxRuntime, PackageImportRule, TransformOptions, TransformResult,
+    get_preset_package_names, transform_files_parallel, transform_source, BatchCompressResult,
+    BatchResult, CompressOptions, JsxRuntime, PackageImportRule, TransformOptions, TransformResult,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -271,4 +271,9 @@ pub fn compress_files(
     let paths: Vec<PathBuf> = files.into_iter().map(PathBuf::from).collect();
     let res = core_compress_files(&paths, &opts, std::time::Instant::now());
     Ok(to_js_batch_compress_result(res))
+}
+
+#[napi]
+pub fn get_default_package_import_presets() -> Vec<String> {
+    get_preset_package_names()
 }

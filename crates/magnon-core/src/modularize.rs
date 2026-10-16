@@ -17,8 +17,10 @@ impl<'a> MemberFilter<'a> {
     }
 }
 
+use std::borrow::Cow;
+
 pub struct ResolvedRule<'a> {
-    pub transform: &'a str,
+    pub transform: Cow<'a, str>,
     pub skip_default_conversion: bool,
     pub pascal_case_only: bool,
     pub include: Option<MemberFilter<'a>>,
@@ -82,7 +84,7 @@ pub fn optimize_program_imports<'a>(
                                         }
                                     }
 
-                                    let target_source = apply_template(rule.transform, member_name);
+                                    let target_source = apply_template(&rule.transform, member_name);
                                     let span = spec.span;
                                     let local_ident = spec.local.clone();
 
@@ -216,13 +218,160 @@ fn to_camel_case(s: &str) -> String {
     out
 }
 
+pub struct PackagePreset {
+    pub package: &'static str,
+    pub transform: &'static str,
+    pub skip_default_conversion: bool,
+    pub pascal_case_only: bool,
+    pub exclude: Option<&'static [&'static str]>,
+}
+
+pub const KNOWN_PACKAGE_PRESETS: &[PackagePreset] = &[
+    PackagePreset {
+        package: "@tabler/icons-react",
+        transform: "@tabler/icons-react/dist/esm/icons/{{member}}.mjs",
+        skip_default_conversion: false,
+        pascal_case_only: false,
+        exclude: None,
+    },
+    PackagePreset {
+        package: "@mui/icons-material",
+        transform: "@mui/icons-material/esm/{{member}}",
+        skip_default_conversion: false,
+        pascal_case_only: false,
+        exclude: None,
+    },
+    PackagePreset {
+        package: "@mui/material",
+        transform: "@mui/material/{{member}}",
+        skip_default_conversion: false,
+        pascal_case_only: true,
+        exclude: Some(&[
+            "StyledEngineProvider",
+            "ThemeProvider",
+            "CssVarsProvider",
+            "AlertColor",
+            "PaletteMode",
+            "SelectChangeEvent",
+            "SnackbarCloseReason",
+            "SxProps",
+            "Theme",
+        ]),
+    },
+    PackagePreset {
+        package: "@mui/lab",
+        transform: "@mui/lab/{{member}}",
+        skip_default_conversion: false,
+        pascal_case_only: true,
+        exclude: None,
+    },
+    PackagePreset {
+        package: "lucide-react",
+        transform: "lucide-react/dist/esm/icons/{{kebabCase member}}",
+        skip_default_conversion: false,
+        pascal_case_only: false,
+        exclude: None,
+    },
+    PackagePreset {
+        package: "@heroicons/react/24/outline",
+        transform: "@heroicons/react/24/outline/{{member}}",
+        skip_default_conversion: false,
+        pascal_case_only: false,
+        exclude: None,
+    },
+    PackagePreset {
+        package: "@heroicons/react/24/solid",
+        transform: "@heroicons/react/24/solid/{{member}}",
+        skip_default_conversion: false,
+        pascal_case_only: false,
+        exclude: None,
+    },
+    PackagePreset {
+        package: "@heroicons/react/20/solid",
+        transform: "@heroicons/react/20/solid/{{member}}",
+        skip_default_conversion: false,
+        pascal_case_only: false,
+        exclude: None,
+    },
+    PackagePreset {
+        package: "@phosphor-icons/react",
+        transform: "@phosphor-icons/react/dist/csr/{{member}}",
+        skip_default_conversion: false,
+        pascal_case_only: false,
+        exclude: None,
+    },
+    PackagePreset {
+        package: "lodash",
+        transform: "lodash/{{member}}",
+        skip_default_conversion: false,
+        pascal_case_only: false,
+        exclude: None,
+    },
+    PackagePreset {
+        package: "lodash-es",
+        transform: "lodash-es/{{member}}",
+        skip_default_conversion: false,
+        pascal_case_only: false,
+        exclude: None,
+    },
+    PackagePreset {
+        package: "date-fns",
+        transform: "date-fns/{{member}}",
+        skip_default_conversion: false,
+        pascal_case_only: false,
+        exclude: None,
+    },
+    PackagePreset {
+        package: "ramda",
+        transform: "ramda/es/{{member}}",
+        skip_default_conversion: false,
+        pascal_case_only: false,
+        exclude: None,
+    },
+    PackagePreset {
+        package: "react-bootstrap",
+        transform: "react-bootstrap/{{member}}",
+        skip_default_conversion: false,
+        pascal_case_only: true,
+        exclude: None,
+    },
+    PackagePreset {
+        package: "antd",
+        transform: "antd/es/{{member}}",
+        skip_default_conversion: false,
+        pascal_case_only: false,
+        exclude: None,
+    },
+    PackagePreset {
+        package: "rxjs",
+        transform: "rxjs/{{member}}",
+        skip_default_conversion: false,
+        pascal_case_only: false,
+        exclude: None,
+    },
+    PackagePreset {
+        package: "rxjs/operators",
+        transform: "rxjs/operators/{{member}}",
+        skip_default_conversion: false,
+        pascal_case_only: false,
+        exclude: None,
+    },
+];
+
+pub fn get_preset_package_names() -> Vec<String> {
+    KNOWN_PACKAGE_PRESETS
+        .iter()
+        .map(|p| p.package.to_string())
+        .collect()
+}
+
 fn resolve_rule<'a>(
     source: &str,
     options: &'a TransformOptions,
 ) -> Option<ResolvedRule<'a>> {
     if let Some(rule) = options.modularize_imports.get(source) {
         return Some(ResolvedRule {
-            transform: rule.transform.as_str(),
+            transform: Cow::Borrowed(rule.transform.as_str()),
             skip_default_conversion: rule.skip_default_conversion.unwrap_or(false),
             pascal_case_only: rule.pascal_case_only.unwrap_or(false),
             include: rule.include.as_deref().map(MemberFilter::Vec),
@@ -235,131 +384,23 @@ fn resolve_rule<'a>(
         .iter()
         .any(|pkg| pkg == source)
     {
-        return match source {
-            "@tabler/icons-react" => Some(ResolvedRule {
-                transform: "@tabler/icons-react/dist/esm/icons/{{member}}.mjs",
-                skip_default_conversion: false,
-                pascal_case_only: false,
+        if let Some(preset) = KNOWN_PACKAGE_PRESETS.iter().find(|p| p.package == source) {
+            return Some(ResolvedRule {
+                transform: Cow::Borrowed(preset.transform),
+                skip_default_conversion: preset.skip_default_conversion,
+                pascal_case_only: preset.pascal_case_only,
                 include: None,
-                exclude: None,
-            }),
-            "@mui/icons-material" => Some(ResolvedRule {
-                transform: "@mui/icons-material/esm/{{member}}",
-                skip_default_conversion: false,
-                pascal_case_only: false,
-                include: None,
-                exclude: None,
-            }),
-            "@mui/material" => Some(ResolvedRule {
-                transform: "@mui/material/{{member}}",
-                skip_default_conversion: false,
-                pascal_case_only: true,
-                include: None,
-                exclude: Some(MemberFilter::Slice(&[
-                    "StyledEngineProvider",
-                    "ThemeProvider",
-                    "CssVarsProvider",
-                    "AlertColor",
-                    "PaletteMode",
-                    "SelectChangeEvent",
-                    "SnackbarCloseReason",
-                    "SxProps",
-                    "Theme",
-                ])),
-            }),
-            "@mui/lab" => Some(ResolvedRule {
-                transform: "@mui/lab/{{member}}",
-                skip_default_conversion: false,
-                pascal_case_only: true,
-                include: None,
-                exclude: None,
-            }),
-            "lucide-react" => Some(ResolvedRule {
-                transform: "lucide-react/dist/esm/icons/{{kebabCase member}}",
-                skip_default_conversion: false,
-                pascal_case_only: false,
-                include: None,
-                exclude: None,
-            }),
-            "@heroicons/react/24/outline" => Some(ResolvedRule {
-                transform: "@heroicons/react/24/outline/{{member}}",
-                skip_default_conversion: false,
-                pascal_case_only: false,
-                include: None,
-                exclude: None,
-            }),
-            "@heroicons/react/24/solid" => Some(ResolvedRule {
-                transform: "@heroicons/react/24/solid/{{member}}",
-                skip_default_conversion: false,
-                pascal_case_only: false,
-                include: None,
-                exclude: None,
-            }),
-            "@phosphor-icons/react" => Some(ResolvedRule {
-                transform: "@phosphor-icons/react/dist/csr/{{member}}",
-                skip_default_conversion: false,
-                pascal_case_only: false,
-                include: None,
-                exclude: None,
-            }),
-            "lodash" => Some(ResolvedRule {
-                transform: "lodash/{{member}}",
-                skip_default_conversion: false,
-                pascal_case_only: false,
-                include: None,
-                exclude: None,
-            }),
-            "lodash-es" => Some(ResolvedRule {
-                transform: "lodash-es/{{member}}",
-                skip_default_conversion: false,
-                pascal_case_only: false,
-                include: None,
-                exclude: None,
-            }),
-            "date-fns" => Some(ResolvedRule {
-                transform: "date-fns/{{member}}",
-                skip_default_conversion: false,
-                pascal_case_only: false,
-                include: None,
-                exclude: None,
-            }),
-            "ramda" => Some(ResolvedRule {
-                transform: "ramda/es/{{member}}",
-                skip_default_conversion: false,
-                pascal_case_only: false,
-                include: None,
-                exclude: None,
-            }),
-            "react-bootstrap" => Some(ResolvedRule {
-                transform: "react-bootstrap/{{member}}",
-                skip_default_conversion: false,
-                pascal_case_only: true,
-                include: None,
-                exclude: None,
-            }),
-            "antd" => Some(ResolvedRule {
-                transform: "antd/es/{{member}}",
-                skip_default_conversion: false,
-                pascal_case_only: false,
-                include: None,
-                exclude: None,
-            }),
-            "rxjs" => Some(ResolvedRule {
-                transform: "rxjs/{{member}}",
-                skip_default_conversion: false,
-                pascal_case_only: false,
-                include: None,
-                exclude: None,
-            }),
-            "rxjs/operators" => Some(ResolvedRule {
-                transform: "rxjs/operators/{{member}}",
-                skip_default_conversion: false,
-                pascal_case_only: false,
-                include: None,
-                exclude: None,
-            }),
-            _ => None,
-        };
+                exclude: preset.exclude.map(MemberFilter::Slice),
+            });
+        }
+
+        return Some(ResolvedRule {
+            transform: Cow::Owned(format!("{}/{{{{member}}}}", source)),
+            skip_default_conversion: false,
+            pascal_case_only: false,
+            include: None,
+            exclude: None,
+        });
     }
 
     None

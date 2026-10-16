@@ -85,6 +85,8 @@ export function compressDirectory(dirPath: string, options?: CompressOptions): B
 export function compressFiles(files: string[], options?: CompressOptions): BatchCompressResult;
 export function compression(options?: CompressOptions): any;
 export function compress(options?: CompressOptions): any;
+export function getDefaultPackageImportPresets(): string[];
+export const DEFAULT_OPTIMIZE_IMPORTS: string[];
 export interface RolldownGroup {
   name: string;
   test: RegExp | ((id: string) => boolean);
