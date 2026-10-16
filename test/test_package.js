@@ -74,17 +74,71 @@ function testModularizeImports() {
 }
 
 function testSplitChunks() {
-  const manualChunks = magnon.splitChunks({
-    'igniteui-vendor': ['igniteui-react'],
-    'swagger-vendor': ['swagger-ui', 'swagger-client'],
+  const splitHelper = magnon.splitChunks({
+    framework: false,
+    chunks: {
+      'igniteui-vendor': ['igniteui-react'],
+      'swagger-vendor': ['swagger-ui', 'swagger-client'],
+    }
   });
 
-  assert.strictEqual(manualChunks('/project/node_modules/igniteui-react-grids/index.js'), 'igniteui-vendor');
-  assert.strictEqual(manualChunks('/project/node_modules/swagger-ui-react/index.js'), 'swagger-vendor');
-  assert.strictEqual(manualChunks('/project/node_modules/react/index.js'), undefined);
-  assert.strictEqual(manualChunks('/project/src/App.tsx'), undefined);
+  assert.strictEqual(splitHelper('/project/node_modules/igniteui-react-grids/index.js'), 'igniteui-vendor');
+  assert.strictEqual(splitHelper('/project/node_modules/swagger-ui-react/index.js'), 'swagger-vendor');
+  assert.strictEqual(splitHelper('/project/node_modules/other-pkg/index.js'), undefined);
+  assert.strictEqual(splitHelper('/project/src/App.tsx'), undefined);
+  assert(Array.isArray(splitHelper.groups));
+  assert.strictEqual(splitHelper.groups.length, 2);
 
-  console.log('  PASS: Fast chunk splitting utility');
+  console.log('  PASS: Dual code splitting helper (Rolldown groups & Rollup manualChunks)');
+}
+
+function testCodeSplittingPresets() {
+  const reactSplit = magnon.codeSplitting({
+    framework: 'react',
+    chunks: {
+      'ag-grid-vendor': ['ag-grid']
+    }
+  });
+
+  assert(Array.isArray(reactSplit.groups));
+  const coreGroup = reactSplit.groups.find(g => g.name === 'core-vendor');
+  assert(coreGroup);
+  assert.strictEqual(coreGroup.priority, 50);
+
+  const agGroup = reactSplit.groups.find(g => g.name === 'ag-grid-vendor');
+  assert(agGroup);
+
+  assert.strictEqual(reactSplit('/project/node_modules/react/index.js'), 'core-vendor');
+  assert.strictEqual(reactSplit('/project/node_modules/ag-grid-react/index.js'), 'ag-grid-vendor');
+
+  const vueSplit = magnon.codeSplitting({ framework: 'vue' });
+  assert.strictEqual(vueSplit('/project/node_modules/vue/dist/vue.esm.js'), 'core-vendor');
+
+  console.log('  PASS: Framework presets for code splitting (React and Vue)');
+}
+
+function testExtendedLibraryModularization() {
+  const lucideCode = `
+    import { ArrowRight, UserCheck } from 'lucide-react';
+    export const icons = [ArrowRight, UserCheck];
+  `;
+  const lucideRes = magnon.transform(lucideCode, 'icons.tsx', {
+    optimizePackageImports: ['lucide-react']
+  });
+  assert(lucideRes.code.includes('lucide-react/dist/esm/icons/arrow-right'));
+  assert(lucideRes.code.includes('lucide-react/dist/esm/icons/user-check'));
+
+  const muiIconsCode = `
+    import { Visibility, Search } from '@mui/icons-material';
+    export const icons = [Visibility, Search];
+  `;
+  const muiIconsRes = magnon.transform(muiIconsCode, 'muiIcons.tsx', {
+    optimizePackageImports: ['@mui/icons-material']
+  });
+  assert(muiIconsRes.code.includes('@mui/icons-material/esm/Visibility'));
+  assert(muiIconsRes.code.includes('@mui/icons-material/esm/Search'));
+
+  console.log('  PASS: Extended modularization (lucide-react kebabCase and @mui/icons-material esm)');
 }
 
 function testBatchTransform() {
@@ -192,6 +246,8 @@ testSingleTransform();
 testOptimizePackageImports();
 testModularizeImports();
 testSplitChunks();
+testCodeSplittingPresets();
+testExtendedLibraryModularization();
 testBatchTransform();
 testVitePluginHooks();
 testNativeCompression();

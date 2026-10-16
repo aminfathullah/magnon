@@ -142,3 +142,61 @@ fn test_modularize_imports_custom() {
     assert!(res.code.contains("my-design-system/es/Header"));
     assert!(res.code.contains("my-design-system/es/Footer"));
 }
+
+#[test]
+fn test_optimize_package_imports_lucide() {
+    let code = r#"
+        import { ArrowRight, UserCheck } from 'lucide-react';
+        export const icons = [ArrowRight, UserCheck];
+    "#;
+
+    let options = TransformOptions {
+        optimize_package_imports: vec!["lucide-react".to_string()],
+        ..Default::default()
+    };
+    let res = transform_source(code, "test.ts", &options).expect("Transform failed");
+    assert!(res.code.contains("lucide-react/dist/esm/icons/arrow-right"));
+    assert!(res.code.contains("lucide-react/dist/esm/icons/user-check"));
+}
+
+#[test]
+fn test_optimize_package_imports_mui_icons() {
+    let code = r#"
+        import { Visibility, Search } from '@mui/icons-material';
+        export const icons = [Visibility, Search];
+    "#;
+
+    let options = TransformOptions {
+        optimize_package_imports: vec!["@mui/icons-material".to_string()],
+        ..Default::default()
+    };
+    let res = transform_source(code, "test.ts", &options).expect("Transform failed");
+    assert!(res.code.contains("@mui/icons-material/esm/Visibility"));
+    assert!(res.code.contains("@mui/icons-material/esm/Search"));
+}
+
+#[test]
+fn test_template_case_transformations() {
+    let code = r#"
+        import { DataGridHeader, NavigationBar } from 'test-lib';
+        export const el = [DataGridHeader, NavigationBar];
+    "#;
+
+    let mut rules = HashMap::new();
+    rules.insert(
+        "test-lib".to_string(),
+        PackageImportRule {
+            transform: "test-lib/dist/{{snakeCase member}}/{{upperCase member}}".to_string(),
+            prevent_full_import: None,
+            skip_default_conversion: None,
+        },
+    );
+
+    let options = TransformOptions {
+        modularize_imports: rules,
+        ..Default::default()
+    };
+    let res = transform_source(code, "test.ts", &options).expect("Transform failed");
+    assert!(res.code.contains("test-lib/dist/data_grid_header/DATAGRIDHEADER"));
+    assert!(res.code.contains("test-lib/dist/navigation_bar/NAVIGATIONBAR"));
+}

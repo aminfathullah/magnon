@@ -82,7 +82,32 @@ export function compressDirectory(dirPath: string, options?: CompressOptions): B
 export function compressFiles(files: string[], options?: CompressOptions): BatchCompressResult;
 export function compression(options?: CompressOptions): any;
 export function compress(options?: CompressOptions): any;
-export function splitChunks(rules?: Record<string, string | string[]>): (id: string) => string | undefined;
+export interface RolldownGroup {
+  name: string;
+  test: RegExp | ((id: string) => boolean);
+  priority?: number;
+  minSize?: number;
+  maxSize?: number;
+  minShareCount?: number;
+}
+
+export interface CodeSplittingOptions {
+  framework?: 'react' | 'vue' | 'svelte' | false;
+  chunks?: Record<string, string | string[]>;
+  vendors?: Record<string, string | string[]>;
+  groups?: RolldownGroup[];
+  priority?: number;
+  [chunkName: string]: any;
+}
+
+export interface CodeSplittingResult {
+  (id: string): string | undefined;
+  groups: RolldownGroup[];
+  manualChunks: (id: string) => string | undefined;
+}
+
+export function codeSplitting(options?: CodeSplittingOptions | Record<string, string | string[]>): CodeSplittingResult;
+export function splitChunks(options?: CodeSplittingOptions | Record<string, string | string[]>): CodeSplittingResult;
 
 export interface ObfuscatorOptions {
   enable?: boolean;
@@ -101,6 +126,8 @@ export interface MagnonPluginOptions extends TransformOptions {
   exclude?: RegExp | string[];
   prewarm?: boolean;
   compress?: boolean | CompressOptions;
+  codeSplitting?: boolean | CodeSplittingOptions | Record<string, string | string[]>;
+  splitChunks?: boolean | CodeSplittingOptions | Record<string, string | string[]>;
 }
 
 export default function magnon(options?: MagnonPluginOptions): any;

@@ -102,6 +102,18 @@ fn apply_template(template: &str, member: &str) -> String {
         let lower = member.to_lowercase();
         res = res.replace("{{lowerCase member}}", &lower);
     }
+    if res.contains("{{upperCase member}}") {
+        let upper = member.to_uppercase();
+        res = res.replace("{{upperCase member}}", &upper);
+    }
+    if res.contains("{{camelCase member}}") {
+        let camel = to_camel_case(member);
+        res = res.replace("{{camelCase member}}", &camel);
+    }
+    if res.contains("{{snakeCase member}}") {
+        let snake = to_snake_case(member);
+        res = res.replace("{{snakeCase member}}", &snake);
+    }
     res
 }
 
@@ -112,6 +124,39 @@ fn to_kebab_case(s: &str) -> String {
             if i > 0 {
                 out.push('-');
             }
+            out.extend(ch.to_lowercase());
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+fn to_snake_case(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 4);
+    for (i, ch) in s.chars().enumerate() {
+        if ch.is_uppercase() {
+            if i > 0 {
+                out.push('_' );
+            }
+            out.extend(ch.to_lowercase());
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+fn to_camel_case(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut capitalize_next = false;
+    for (i, ch) in s.chars().enumerate() {
+        if ch == '-' || ch == '_' {
+            capitalize_next = true;
+        } else if capitalize_next {
+            out.extend(ch.to_uppercase());
+            capitalize_next = false;
+        } else if i == 0 {
             out.extend(ch.to_lowercase());
         } else {
             out.push(ch);
@@ -140,12 +185,19 @@ fn resolve_rule<'a>(
             "@mui/icons-material" => Some(("@mui/icons-material/esm/{{member}}", false)),
             "@mui/material" => Some(("@mui/material/{{member}}", true)),
             "@mui/lab" => Some(("@mui/lab/{{member}}", false)),
+            "lucide-react" => Some(("lucide-react/dist/esm/icons/{{kebabCase member}}", false)),
+            "@heroicons/react/24/outline" => Some(("@heroicons/react/24/outline/{{member}}", false)),
+            "@heroicons/react/24/solid" => Some(("@heroicons/react/24/solid/{{member}}", false)),
+            "@phosphor-icons/react" => Some(("@phosphor-icons/react/dist/csr/{{member}}", false)),
             "lodash" => Some(("lodash/{{member}}", false)),
             "lodash-es" => Some(("lodash-es/{{member}}", false)),
             "date-fns" => Some(("date-fns/{{member}}", false)),
             "ramda" => Some(("ramda/es/{{member}}", false)),
             "react-bootstrap" => Some(("react-bootstrap/{{member}}", false)),
             "antd" => Some(("antd/es/{{member}}", false)),
+            "recharts" => Some(("recharts/es6/component/{{member}}", false)),
+            "rxjs" => Some(("rxjs/{{member}}", false)),
+            "rxjs/operators" => Some(("rxjs/operators/{{member}}", false)),
             _ => None,
         };
     }

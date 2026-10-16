@@ -57,21 +57,102 @@ function compression(options = {}) {
   };
 }
 
-function splitChunks(rules = {}) {
-  const entries = Object.entries(rules);
-  return function manualChunks(id) {
+const FRAMEWORK_PRESETS = {
+  react: {
+    name: "core-vendor",
+    test: /[\\/]node_modules[\\/](react|react-dom|scheduler|prop-types|use-sync-external-store|hoist-non-react-statics|@emotion|redux|react-redux|@reduxjs|immer|@popperjs)[\\/]/,
+    priority: 50,
+    packages: [
+      "/react/", "/react-dom/", "/react@", "/react-dom@",
+      "/@emotion/", "/react-is", "/react-transition-group",
+      "/redux", "/react-redux", "/scheduler", "/prop-types",
+      "/use-sync-external-store", "/hoist-non-react-statics",
+      "/@popperjs/", "/popper.js/", "/immer/", "/@reduxjs/"
+    ]
+  },
+  vue: {
+    name: "core-vendor",
+    test: /[\\/]node_modules[\\/](vue|@vue|vue-router|pinia|vuex)[\\/]/,
+    priority: 50,
+    packages: ["/vue/", "/@vue/", "/vue-router/", "/pinia/", "/vuex/"]
+  },
+  svelte: {
+    name: "core-vendor",
+    test: /[\\/]node_modules[\\/](svelte|@sveltejs)[\\/]/,
+    priority: 50,
+    packages: ["/svelte/", "/@sveltejs/"]
+  }
+};
+
+function codeSplitting(options = {}) {
+  let framework = options.framework;
+  if (!framework && options.framework !== false) {
+    framework = "react";
+  }
+
+  const customGroups = options.groups || [];
+  const chunks = options.chunks || (options.vendors ? options.vendors : {});
+  if (!options.chunks && !options.vendors && !options.groups && !options.framework) {
+    Object.entries(options).forEach(([k, v]) => {
+      if (k !== "framework" && k !== "groups" && k !== "chunks" && k !== "vendors" && k !== "priority") {
+        chunks[k] = v;
+      }
+    });
+  }
+
+  const rolldownGroups = [];
+  let basePriority = 40;
+
+  if (framework && FRAMEWORK_PRESETS[framework]) {
+    rolldownGroups.push({
+      name: FRAMEWORK_PRESETS[framework].name,
+      test: FRAMEWORK_PRESETS[framework].test,
+      priority: FRAMEWORK_PRESETS[framework].priority
+    });
+  }
+
+  Object.entries(chunks).forEach(([chunkName, pkgs]) => {
+    const pkgList = Array.isArray(pkgs) ? pkgs : [pkgs];
+    const escaped = pkgList.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+    const regex = new RegExp(`[\\/]node_modules[\\/](${escaped})`);
+    rolldownGroups.push({
+      name: chunkName,
+      test: regex,
+      priority: Math.max(10, basePriority)
+    });
+    basePriority -= 5;
+  });
+
+  customGroups.forEach((g) => {
+    rolldownGroups.push(g);
+  });
+
+  const manualChunksFn = function manualChunks(id) {
     if (!id.includes("node_modules")) return;
     const pkgPath = id.slice(id.lastIndexOf("node_modules/"));
-    for (const [chunkName, pkgs] of entries) {
-      if (Array.isArray(pkgs)) {
-        for (const pkg of pkgs) {
-          if (pkgPath.includes(pkg)) return chunkName;
-        }
-      } else if (typeof pkgs === "string" && pkgPath.includes(pkgs)) {
-        return chunkName;
+
+    if (framework && FRAMEWORK_PRESETS[framework]) {
+      const fwPkgs = FRAMEWORK_PRESETS[framework].packages;
+      for (const p of fwPkgs) {
+        if (pkgPath.includes(p)) return FRAMEWORK_PRESETS[framework].name;
+      }
+    }
+
+    for (const [chunkName, pkgs] of Object.entries(chunks)) {
+      const pkgList = Array.isArray(pkgs) ? pkgs : [pkgs];
+      for (const p of pkgList) {
+        if (pkgPath.includes(p)) return chunkName;
       }
     }
   };
+
+  manualChunksFn.groups = rolldownGroups;
+  manualChunksFn.manualChunks = manualChunksFn;
+  return manualChunksFn;
+}
+
+function splitChunks(rules = {}) {
+  return codeSplitting(rules);
 }
 
 function obfuscator(pluginOptions = {}) {
@@ -226,6 +307,7 @@ function magnonPlugin(options = {}) {
   const exclude = options.exclude || /node_modules/;
   const prewarm = options.prewarm !== false;
   const compressOpts = options.compress === true ? {} : options.compress;
+  const codeSplitOpts = options.codeSplitting || options.splitChunks;
   const optimizePackageImports = options.optimizePackageImports === false
     ? []
     : (Array.isArray(options.optimizePackageImports)
@@ -235,9 +317,18 @@ function magnonPlugin(options = {}) {
             "@mui/material",
             "@mui/icons-material",
             "@mui/lab",
+            "lucide-react",
+            "@heroicons/react/24/outline",
+            "@heroicons/react/24/solid",
+            "@phosphor-icons/react",
             "lodash",
             "lodash-es",
             "date-fns",
+            "ramda",
+            "react-bootstrap",
+            "antd",
+            "recharts",
+            "rxjs",
           ]);
   const modularizeImports = options.modularizeImports || {};
   const cache = new Map();
@@ -248,9 +339,15 @@ function magnonPlugin(options = {}) {
     enforce: "pre",
 
     config(config) {
-      return {
+      const cfg = {
         esbuild: false,
         oxc: false,
+        resolve: {
+          alias: [
+            { find: /^@mui\/icons-material\/(?!esm\/)(.*)/, replacement: "@mui/icons-material/esm/$1" },
+            { find: /^@mui\/icons-material$/, replacement: "@mui/icons-material/esm" }
+          ]
+        },
         build: {
           rolldownOptions: {
             onwarn(warning, defaultHandler) {
@@ -260,6 +357,22 @@ function magnonPlugin(options = {}) {
           }
         }
       };
+
+      if (codeSplitOpts) {
+        const splitHelper = typeof codeSplitOpts === "object" ? codeSplitting(codeSplitOpts) : codeSplitting();
+        cfg.build.rolldownOptions.output = {
+          codeSplitting: {
+            groups: splitHelper.groups
+          }
+        };
+        cfg.build.rollupOptions = {
+          output: {
+            manualChunks: splitHelper.manualChunks
+          }
+        };
+      }
+
+      return cfg;
     },
 
     configResolved(config) {
@@ -371,6 +484,7 @@ module.exports.magnon = magnonPlugin;
 module.exports.compression = compression;
 module.exports.compress = compression;
 module.exports.splitChunks = splitChunks;
+module.exports.codeSplitting = codeSplitting;
 module.exports.obfuscator = obfuscator;
 module.exports.obfuscate = obfuscator;
 module.exports.transform = transform;
