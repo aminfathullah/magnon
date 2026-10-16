@@ -304,12 +304,21 @@ function testRolldownCjsInterop() {
       type: "chunk",
       fileName: "assets/rolldown-runtime-xyz.js",
       code: "u=(n,r,o)=>(o=n==null?{}:e(i(n)),l(r||!n||!n.__esModule||!a.call(n,`default`)?t(o,`default`,{value:n,enumerable:!0}):o,n))"
+    },
+    "assets/rolldown-runtime-abc.js": {
+      type: "chunk",
+      fileName: "assets/rolldown-runtime-abc.js",
+      code: "x=(e,t,p)=>(p=e==null?{}:r(m(e)),k(t||!e||!e.__esModule||!q.call(e,\"default\")?d(p,\"default\",{value:e,enumerable:!0}):p,e))"
     }
   };
   plugin.generateBundle({}, bundle);
   assert.strictEqual(
     bundle["assets/rolldown-runtime-xyz.js"].code,
     "u=(n,r,o)=>(o=n==null?{}:e(i(n)),l((!n||!a.call(n,`default`))?t(o,`default`,{value:n,enumerable:!0}):o,n))"
+  );
+  assert.strictEqual(
+    bundle["assets/rolldown-runtime-abc.js"].code,
+    "x=(e,t,p)=>(p=e==null?{}:r(m(e)),k((!e||!q.call(e,\"default\"))?d(p,\"default\",{value:e,enumerable:!0}):p,e))"
   );
   console.log('  PASS: Rolldown CJS/ESM interop patching for default export namespaces');
 }

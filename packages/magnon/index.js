@@ -75,13 +75,10 @@ function createFrameworkPreset(packages, priority = 50, name = "core-vendor") {
 const FRAMEWORK_PRESETS = {
   react: createFrameworkPreset([
     "react", "react-dom", "scheduler", "prop-types",
-    "use-sync-external-store", "hoist-non-react-statics", "react-is",
-    "react-router", "react-router-dom", "@remix-run/router",
-    "react-redux", "@reduxjs/toolkit", "redux", "redux-thunk"
+    "use-sync-external-store", "hoist-non-react-statics", "react-is"
   ]),
   vue: createFrameworkPreset([
-    "vue", "@vue/runtime-core", "@vue/runtime-dom", "@vue/reactivity", "@vue/shared",
-    "vue-router", "pinia", "vuex"
+    "vue", "@vue/runtime-core", "@vue/runtime-dom", "@vue/reactivity", "@vue/shared"
   ]),
   svelte: createFrameworkPreset(["svelte"]),
   preact: createFrameworkPreset(["preact"]),
@@ -203,13 +200,10 @@ function matchesPattern(str, pattern) {
 
 function fixRolldownCjsInterop(code) {
   if (typeof code !== "string") return code;
-  return code
-    .replace(/\(!n\|\|!n\.__esModule\|\|!a\.call\(n,`default`\)\)/g, "(!n||!a.call(n,`default`))")
-    .replace(/\(!n\|\|!n\.__esModule\|\|!a\.call\(n,\"default\"\)\)/g, '(!n||!a.call(n,"default"))')
-    .replace(/\(!n\|\|!n\.__esModule\|\|!a\.call\(n,'default'\)\)/g, "(!n||!a.call(n,'default'))")
-    .replace(/r\|\|!n\|\|!n\.__esModule\|\|!a\.call\(n,`default`\)/g, "(!n||!a.call(n,`default`))")
-    .replace(/r\|\|!n\|\|!n\.__esModule\|\|!a\.call\(n,\"default\"\)/g, '(!n||!a.call(n,"default"))')
-    .replace(/r\|\|!n\|\|!n\.__esModule\|\|!a\.call\(n,'default'\)/g, "(!n||!a.call(n,'default'))");
+  return code.replace(
+    /(?:[a-zA-Z0-9_$]+\s*\|\|\s*)?!([a-zA-Z0-9_$]+)\s*\|\|\s*!\1\.__esModule\s*\|\|\s*!([a-zA-Z0-9_$]+)\.call\(\1,\s*(["'`])(default)\3\)/g,
+    "(!$1||!$2.call($1,$3$4$3))"
+  );
 }
 
 function createAntiDebugTrap(options = {}) {
