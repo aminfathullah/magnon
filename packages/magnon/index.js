@@ -178,10 +178,16 @@ function codeSplitting(options = {}) {
 
   manualChunksFn.groups = rolldownGroups;
   manualChunksFn.manualChunks = manualChunksFn;
-  return {
+  const res = {
     groups: rolldownGroups,
-    manualChunks: manualChunksFn,
   };
+  Object.defineProperty(res, "manualChunks", {
+    value: manualChunksFn,
+    enumerable: false,
+    configurable: true,
+    writable: true,
+  });
+  return res;
 }
 
 function splitChunks(rules = {}) {
@@ -376,51 +382,49 @@ function obfuscator(pluginOptions = {}) {
           mods.some((m) => m.includes(frag)) || fileName.includes(frag)
         );
 
-        if (!isCritical) {
-          if (mergedCriticalFragments.length > 0 && !include) {
-            if (hasDebugProtection && output.isEntry) {
-              output.code = createAntiDebugTrap(debugInterval) + output.code;
-            }
+        if (exclude && (matchesPattern(fileName, exclude) || mods.some((m) => matchesPattern(m, exclude)))) {
+          if (hasDebugProtection && output.isEntry) {
+            output.code = createAntiDebugTrap(debugInterval) + output.code;
+          }
+          continue;
+        }
+
+        if (autoExcludeNodeModules) {
+          const allModulesVendor = mods.length > 0 && mods.every((m) => m.includes("/node_modules/"));
+          const isVendorChunk = /[\\/](vendor|node_modules)[\\/]/i.test(fileName)
+            || /(?:^|[._/-])vendor(?:[._/-]|$)/i.test(fileName);
+
+          if (allModulesVendor || isVendorChunk) {
             continue;
           }
+        }
 
-          if (output.code.length < minChunkSize) {
-            if (hasDebugProtection && output.isEntry) {
-              output.code = createAntiDebugTrap(debugInterval) + output.code;
-            }
-            continue;
+        if (!obfuscateEntry && output.isEntry) {
+          if (hasDebugProtection) {
+            output.code = createAntiDebugTrap(debugInterval) + output.code;
           }
+          continue;
+        }
 
-          if (include && !matchesPattern(fileName, include) && !mods.some((m) => matchesPattern(m, include))) {
-            if (hasDebugProtection && output.isEntry) {
-              output.code = createAntiDebugTrap(debugInterval) + output.code;
-            }
-            continue;
+        if (output.code.length < minChunkSize) {
+          if (hasDebugProtection && output.isEntry) {
+            output.code = createAntiDebugTrap(debugInterval) + output.code;
           }
+          continue;
+        }
 
-          if (exclude && (matchesPattern(fileName, exclude) || mods.some((m) => matchesPattern(m, exclude)))) {
-            if (hasDebugProtection && output.isEntry) {
-              output.code = createAntiDebugTrap(debugInterval) + output.code;
-            }
-            continue;
+        if (include && !matchesPattern(fileName, include) && !mods.some((m) => matchesPattern(m, include))) {
+          if (hasDebugProtection && output.isEntry) {
+            output.code = createAntiDebugTrap(debugInterval) + output.code;
           }
+          continue;
+        }
 
-          if (!obfuscateEntry && output.isEntry) {
-            if (hasDebugProtection) {
-              output.code = createAntiDebugTrap(debugInterval) + output.code;
-            }
-            continue;
+        if (mergedCriticalFragments.length > 0 && !isCritical && !include) {
+          if (hasDebugProtection && output.isEntry) {
+            output.code = createAntiDebugTrap(debugInterval) + output.code;
           }
-
-          if (autoExcludeNodeModules) {
-            const allModulesVendor = mods.length > 0 && mods.every((m) => m.includes("/node_modules/"));
-            const isVendorChunk = /[\\/](vendor|node_modules)[\\/]/i.test(fileName)
-              || /(?:^|[._/-])vendor(?:[._/-]|$)/i.test(fileName);
-
-            if (allModulesVendor || isVendorChunk) {
-              continue;
-            }
-          }
+          continue;
         }
 
         if (hasDebugProtection && output.isEntry) {
