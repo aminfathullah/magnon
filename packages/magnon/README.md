@@ -1,17 +1,18 @@
 # magnon
 
-Magnon: Ultra-high performance TypeScript and JSX compiler, barrel file import optimizer, parallel asset compressor, and Vite plugin written in pure Rust.
+Magnon: Ultra-high performance TypeScript and JSX compiler, barrel file import optimizer, parallel asset compressor, multi-threaded obfuscator, and Vite plugin written in pure Rust.
 
 ## Features
 
-- **Highest Throughput Web Compiler**: Processes over 113,000 files/sec (613 MB/s) on multi-core systems.
+- **Highest Throughput Web Compiler**: Processes over 113,000 files/sec (613 MB/s) on multi-core systems using Rayon parallel iterators and reusable bump arenas.
 - **Drop-in Vite Plugin**: Zero-configuration replacement for `@vitejs/plugin-react` and `@vitejs/plugin-react-swc`.
-- **Native Barrel File Import Optimization**: AST-level rewriting of barrel imports (`@tabler/icons-react`, `@mui/material`, `@mui/icons-material`, `lodash`, etc.) into direct file imports, cutting Rollup AST memory bloat by over 16,000 modules.
+- **AST Barrel File Import Optimization**: Transforms barrel imports (`@tabler/icons-react`, `@mui/material`, `@mui/icons-material`, `lucide-react`, `lodash`, etc.) into direct subpath imports at the AST level, cutting Rollup AST memory bloat by over 16,000 modules.
+- **Dynamic General-Purpose Package Resolution**: Any library specified in `optimizePackageImports` automatically resolves direct named-to-default imports (`{{source}}/{{member}}`) without hardcoded restrictions.
+- **Dual Engine Code Splitting**: High-performance chunk partitioner providing instant compatibility for both Rolldown `codeSplitting.groups` and Rollup `manualChunks`.
+- **Parallel Chunk Obfuscation**: Multi-threaded JavaScript obfuscator running across worker thread pools with customizable anti-debugging traps and automatic `node_modules` vendor exclusion.
 - **Native Multi-Threaded Asset Compression**: Parallel Brotli and Gzip bundle compression in pure Rust using Rayon (up to 195x faster than Node-based compression plugins).
-- **Fast Chunk Splitting Utility**: High-performance vendor chunk splitter replacing slow regex loops in Rollup `manualChunks`.
-- **Reusable Bump Arenas**: Eliminates per-module allocator mutex contention and garbage collection pauses.
+- **Zero Allocator Contention**: Thread-local bump allocation eliminates per-module allocator mutex contention and garbage collection pauses.
 - **Single FFI Boundary Crossing**: `transformBatch` and `compressDirectory` process entire directories in native Rust in a single Node-API call.
-- **Strict Spec Conformance**: Full support for TypeScript type stripping and React automatic JSX runtime.
 
 ## Installation
 
@@ -25,13 +26,13 @@ yarn add magnon
 
 ## Quickstart
 
-### Vite Plugin (Compilation + Import Optimization + Compression)
+### Vite Configuration
 
 In your `vite.config.js` or `vite.config.mjs`:
 
 ```javascript
 import { defineConfig } from 'vite';
-import magnon, { compression, splitChunks } from 'magnon/vite';
+import magnon, { compression, splitChunks, obfuscator } from 'magnon/vite';
 
 export default defineConfig({
   plugins: [
@@ -39,13 +40,14 @@ export default defineConfig({
     magnon({
       jsxRuntime: 'automatic',
       development: process.env.NODE_ENV !== 'production',
-      // Enabled by default for @tabler/icons-react, @mui/material, @mui/icons-material, lodash, date-fns
+      // Enabled by default for @tabler/icons-react, @mui/material, @mui/icons-material, lodash, date-fns, etc.
+      // Any additional library is automatically modularized dynamically!
       optimizePackageImports: [
         '@tabler/icons-react',
         '@mui/material',
         '@mui/icons-material',
-        '@mui/lab',
-        'lodash',
+        'lucide-react',
+        '@acme/components',
       ],
       // Or define custom template rewrite rules
       modularizeImports: {
@@ -54,7 +56,16 @@ export default defineConfig({
         },
       },
     }),
-    // Standalone drop-in replacement for vite-plugin-compression
+
+    // Parallel multi-worker obfuscation for production builds
+    obfuscator({
+      enable: process.env.NODE_ENV === 'production',
+      debugProtection: true,
+      debugProtectionInterval: 2000,
+      autoExcludeNodeModules: true,
+    }),
+
+    // Native Brotli & Gzip compression replacing vite-plugin-compression
     compression({
       brotli: true,
       gzip: true,
@@ -68,10 +79,11 @@ export default defineConfig({
       output: {
         // Fast vendor chunk splitting without slow regex loops
         manualChunks: splitChunks({
-          'igniteui-vendor': ['igniteui-react'],
-          'swagger-vendor': ['swagger-ui', 'swagger-client'],
-          'ag-grid-vendor': ['ag-grid'],
-          'excel-vendor': ['exceljs'],
+          framework: 'react',
+          chunks: {
+            'ui-vendor': ['@mui/material', '@tabler/icons-react'],
+            'utils-vendor': ['lodash', 'date-fns', 'ramda'],
+          },
         }),
       },
     },
@@ -141,7 +153,7 @@ Evaluated against the standard 853-file production corpus (Three.js modules + Re
 
 ### 2. Full Bundle Compression (198 Files, 45.0 MB JavaScript & CSS)
 
-Evaluated against a real-world enterprise production bundle (Majapahit):
+Evaluated against a real-world enterprise production bundle:
 
 | Compression Engine | Algorithm | Cores | Time (ms) | Speedup vs Node.js |
 | :--- | :--- | :---: | :---: | :---: |
@@ -150,7 +162,7 @@ Evaluated against a real-world enterprise production bundle (Majapahit):
 
 ### 3. Barrel File Import Elimination
 
-Tested on Majapahit enterprise frontend (Vite 6, React 18, 382 MUI imports, 156 Tabler Icon imports):
+Tested on an enterprise React production application (Vite 6, React 18, 382 MUI imports, 156 Tabler Icon imports):
 
 | Metric | Before Magnon Optimization | With Magnon `optimizePackageImports` | Reduction |
 | :--- | :---: | :---: | :---: |

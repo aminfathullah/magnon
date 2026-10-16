@@ -11,7 +11,7 @@ pub enum MemberFilter<'a> {
 impl<'a> MemberFilter<'a> {
     pub fn contains(&self, item: &str) -> bool {
         match self {
-            MemberFilter::Slice(slice) => slice.iter().any(|s| *s == item),
+            MemberFilter::Slice(slice) => slice.contains(&item),
             MemberFilter::Vec(vec) => vec.iter().any(|s| s.as_str() == item),
         }
     }
@@ -53,7 +53,9 @@ pub fn optimize_program_imports<'a>(
                             match specifier {
                                 ImportDeclarationSpecifier::ImportSpecifier(spec) => {
                                     if matches!(spec.import_kind, ImportOrExportKind::Type) {
-                                        retained.push(ImportDeclarationSpecifier::ImportSpecifier(spec));
+                                        retained.push(ImportDeclarationSpecifier::ImportSpecifier(
+                                            spec,
+                                        ));
                                         continue;
                                     }
 
@@ -63,28 +65,35 @@ pub fn optimize_program_imports<'a>(
                                         && (!member_name
                                             .chars()
                                             .next()
-                                            .map_or(false, |c| c.is_ascii_uppercase())
+                                            .is_some_and(|c| c.is_ascii_uppercase())
                                             || member_name.ends_with("Props"))
                                     {
-                                        retained.push(ImportDeclarationSpecifier::ImportSpecifier(spec));
+                                        retained.push(ImportDeclarationSpecifier::ImportSpecifier(
+                                            spec,
+                                        ));
                                         continue;
                                     }
 
                                     if let Some(ref ex) = rule.exclude {
                                         if ex.contains(member_name) {
-                                            retained.push(ImportDeclarationSpecifier::ImportSpecifier(spec));
+                                            retained.push(
+                                                ImportDeclarationSpecifier::ImportSpecifier(spec),
+                                            );
                                             continue;
                                         }
                                     }
 
                                     if let Some(ref inc) = rule.include {
                                         if !inc.contains(member_name) {
-                                            retained.push(ImportDeclarationSpecifier::ImportSpecifier(spec));
+                                            retained.push(
+                                                ImportDeclarationSpecifier::ImportSpecifier(spec),
+                                            );
                                             continue;
                                         }
                                     }
 
-                                    let target_source = apply_template(&rule.transform, member_name);
+                                    let target_source =
+                                        apply_template(&rule.transform, member_name);
                                     let span = spec.span;
                                     let local_ident = spec.local.clone();
 
@@ -108,7 +117,8 @@ pub fn optimize_program_imports<'a>(
                                     new_specs.push(new_spec);
 
                                     let source_str_arena = allocator.alloc_str(&target_source);
-                                    let source_literal = ast.string_literal(span, source_str_arena, None);
+                                    let source_literal =
+                                        ast.string_literal(span, source_str_arena, None);
                                     let new_decl = ast.alloc_import_declaration(
                                         span,
                                         Some(new_specs),
@@ -365,10 +375,7 @@ pub fn get_preset_package_names() -> Vec<String> {
         .collect()
 }
 
-fn resolve_rule<'a>(
-    source: &str,
-    options: &'a TransformOptions,
-) -> Option<ResolvedRule<'a>> {
+fn resolve_rule<'a>(source: &str, options: &'a TransformOptions) -> Option<ResolvedRule<'a>> {
     if let Some(rule) = options.modularize_imports.get(source) {
         return Some(ResolvedRule {
             transform: Cow::Borrowed(rule.transform.as_str()),

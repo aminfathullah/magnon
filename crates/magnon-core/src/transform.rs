@@ -8,8 +8,8 @@ use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
 use oxc_span::SourceType as OxcSourceType;
 use oxc_transformer::{
-    JsxOptions, JsxRuntime as OxcJsxRuntime, TransformOptions as OxcTransformOptions,
-    Transformer, TypeScriptOptions,
+    JsxOptions, JsxRuntime as OxcJsxRuntime, TransformOptions as OxcTransformOptions, Transformer,
+    TypeScriptOptions,
 };
 use std::path::Path;
 
@@ -31,10 +31,18 @@ fn transform_with_allocator(
 ) -> Result<TransformResult, MagnonError> {
     let source_type_kind = SourceType::from_path(filename);
     let mut oxc_source_type = match source_type_kind {
-        SourceType::Tsx => OxcSourceType::default().with_typescript(true).with_jsx(true),
-        SourceType::Ts => OxcSourceType::default().with_typescript(true).with_jsx(false),
-        SourceType::Jsx => OxcSourceType::default().with_typescript(false).with_jsx(true),
-        SourceType::Js => OxcSourceType::default().with_typescript(false).with_jsx(false),
+        SourceType::Tsx => OxcSourceType::default()
+            .with_typescript(true)
+            .with_jsx(true),
+        SourceType::Ts => OxcSourceType::default()
+            .with_typescript(true)
+            .with_jsx(false),
+        SourceType::Jsx => OxcSourceType::default()
+            .with_typescript(false)
+            .with_jsx(true),
+        SourceType::Js => OxcSourceType::default()
+            .with_typescript(false)
+            .with_jsx(false),
     };
     oxc_source_type = oxc_source_type.with_module(true);
 
@@ -62,13 +70,15 @@ fn transform_with_allocator(
         oxc_options.typescript = TypeScriptOptions::default();
     }
     if source_type_kind.is_jsx() {
-        let mut jsx = JsxOptions::default();
-        jsx.runtime = match options.jsx_runtime {
+        let runtime = match options.jsx_runtime {
             JsxRuntime::Automatic => OxcJsxRuntime::Automatic,
             JsxRuntime::Classic => OxcJsxRuntime::Classic,
         };
-        jsx.development = options.development;
-        oxc_options.jsx = jsx;
+        oxc_options.jsx = JsxOptions {
+            runtime,
+            development: options.development,
+            ..Default::default()
+        };
     }
 
     let transformer = Transformer::new(allocator, path, &oxc_options);

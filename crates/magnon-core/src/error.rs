@@ -11,16 +11,10 @@ pub enum MagnonError {
     },
 
     #[error("Parse error in '{filename}': {message}")]
-    Parse {
-        filename: String,
-        message: String,
-    },
+    Parse { filename: String, message: String },
 
     #[error("Transform error in '{filename}': {message}")]
-    Transform {
-        filename: String,
-        message: String,
-    },
+    Transform { filename: String, message: String },
 
     #[error("UTF-8 decoding error in '{filename}': {source}")]
     Utf8 {
@@ -30,7 +24,5 @@ pub enum MagnonError {
     },
 
     #[error("Compression error: {message}")]
-    Compression {
-        message: String,
-    },
+    Compression { message: String },
 }

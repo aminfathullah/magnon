@@ -71,23 +71,28 @@ pub fn compress_gzip(data: &[u8], level: u32) -> Result<Vec<u8>, MagnonError> {
     let mut compressor = Compressor::new(lvl);
     let max_len = compressor.gzip_compress_bound(data.len());
     let mut out = vec![0u8; max_len];
-    let written = compressor
-        .gzip_compress(data, &mut out)
-        .map_err(|e| MagnonError::Compression {
-            message: format!("Gzip failed: {:?}", e),
-        })?;
+    let written =
+        compressor
+            .gzip_compress(data, &mut out)
+            .map_err(|e| MagnonError::Compression {
+                message: format!("Gzip failed: {:?}", e),
+            })?;
     out.truncate(written);
     Ok(out)
 }
 
 pub fn compress_brotli(data: &[u8], quality: u32) -> Result<Vec<u8>, MagnonError> {
-    let mut params = brotli::enc::BrotliEncoderParams::default();
-    params.quality = quality.min(11) as i32;
-    params.size_hint = data.len();
+    let params = brotli::enc::BrotliEncoderParams {
+        quality: quality.min(11) as i32,
+        size_hint: data.len(),
+        ..Default::default()
+    };
     let mut input = data;
     let mut output = Vec::with_capacity(data.len() / 2);
-    brotli::BrotliCompress(&mut input, &mut output, &params).map_err(|e| MagnonError::Compression {
-        message: format!("Brotli failed: {}", e),
+    brotli::BrotliCompress(&mut input, &mut output, &params).map_err(|e| {
+        MagnonError::Compression {
+            message: format!("Brotli failed: {}", e),
+        }
     })?;
     Ok(output)
 }
@@ -207,7 +212,10 @@ pub fn collect_compressible_files(dir: &Path, options: &CompressOptions) -> Vec<
                     let ext_lower = ext.to_lowercase();
                     if ext_lower != "gz"
                         && ext_lower != "br"
-                        && options.extensions.iter().any(|e| e.eq_ignore_ascii_case(&ext_lower))
+                        && options
+                            .extensions
+                            .iter()
+                            .any(|e| e.eq_ignore_ascii_case(&ext_lower))
                     {
                         files.push(path);
                     }

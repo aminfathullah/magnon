@@ -106,7 +106,10 @@ fn main() {
             delete_original,
         } => {
             if !dir.exists() {
-                eprintln!("Error: Target directory '{}' does not exist.", dir.display());
+                eprintln!(
+                    "Error: Target directory '{}' does not exist.",
+                    dir.display()
+                );
                 std::process::exit(1);
             }
 
@@ -132,7 +135,10 @@ fn main() {
         }
         Commands::Bench { dir } => {
             if !dir.exists() {
-                eprintln!("Error: Benchmark directory '{}' does not exist.", dir.display());
+                eprintln!(
+                    "Error: Benchmark directory '{}' does not exist.",
+                    dir.display()
+                );
                 std::process::exit(1);
             }
 
@@ -164,9 +170,18 @@ fn main() {
 
                 println!("\n[2] Parallel Compression Benchmark:");
                 println!("  Assets:     {} files", comp_res.total_files);
-                println!("  Original:   {:.2} MB", comp_res.total_original_bytes as f64 / (1024.0 * 1024.0));
-                println!("  Gzip:       {:.2} MB", comp_res.total_gzip_bytes as f64 / (1024.0 * 1024.0));
-                println!("  Brotli:     {:.2} MB", comp_res.total_brotli_bytes as f64 / (1024.0 * 1024.0));
+                println!(
+                    "  Original:   {:.2} MB",
+                    comp_res.total_original_bytes as f64 / (1024.0 * 1024.0)
+                );
+                println!(
+                    "  Gzip:       {:.2} MB",
+                    comp_res.total_gzip_bytes as f64 / (1024.0 * 1024.0)
+                );
+                println!(
+                    "  Brotli:     {:.2} MB",
+                    comp_res.total_brotli_bytes as f64 / (1024.0 * 1024.0)
+                );
                 println!("  Wall Time:  {:.1} ms", comp_res.duration_ms);
                 println!("  Bandwidth:  {:.2} MB/s", mbps);
             }

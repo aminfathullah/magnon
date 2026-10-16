@@ -1,14 +1,14 @@
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-use napi::bindgen_prelude::*;
-use napi_derive::napi;
 use magnon_core::{
-    compress_directory as core_compress_dir, compress_files_parallel as core_compress_files,
-    compress_brotli as core_compress_brotli, compress_gzip as core_compress_gzip,
+    compress_brotli as core_compress_brotli, compress_directory as core_compress_dir,
+    compress_files_parallel as core_compress_files, compress_gzip as core_compress_gzip,
     get_preset_package_names, transform_files_parallel, transform_source, BatchCompressResult,
     BatchResult, CompressOptions, JsxRuntime, PackageImportRule, TransformOptions, TransformResult,
 };
+use napi::bindgen_prelude::*;
+use napi_derive::napi;
 use std::collections::HashMap;
 use std::path::PathBuf;
 

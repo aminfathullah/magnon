@@ -1,16 +1,16 @@
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+use magnon_core::{transform_source, SourceType, TransformOptions};
 use oxc_allocator::Allocator;
 use oxc_codegen::Codegen;
 use oxc_parser::Parser;
 use oxc_semantic::SemanticBuilder;
 use oxc_span::SourceType as OxcSourceType;
 use oxc_transformer::{
-    JsxOptions, JsxRuntime as OxcJsxRuntime, TransformOptions as OxcTransformOptions,
-    Transformer, TypeScriptOptions,
+    JsxOptions, JsxRuntime as OxcJsxRuntime, TransformOptions as OxcTransformOptions, Transformer,
+    TypeScriptOptions,
 };
-use magnon_core::{transform_source, SourceType, TransformOptions};
 use rayon::prelude::*;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -51,10 +51,18 @@ fn benchmark_oxc_single_thread(files: &[PathBuf]) -> (f64, usize) {
         let allocator = Allocator::default();
         let source_type_kind = SourceType::from_path(path);
         let mut oxc_source_type = match source_type_kind {
-            SourceType::Tsx => OxcSourceType::default().with_typescript(true).with_jsx(true),
-            SourceType::Ts => OxcSourceType::default().with_typescript(true).with_jsx(false),
-            SourceType::Jsx => OxcSourceType::default().with_typescript(false).with_jsx(true),
-            SourceType::Js => OxcSourceType::default().with_typescript(false).with_jsx(false),
+            SourceType::Tsx => OxcSourceType::default()
+                .with_typescript(true)
+                .with_jsx(true),
+            SourceType::Ts => OxcSourceType::default()
+                .with_typescript(true)
+                .with_jsx(false),
+            SourceType::Jsx => OxcSourceType::default()
+                .with_typescript(false)
+                .with_jsx(true),
+            SourceType::Js => OxcSourceType::default()
+                .with_typescript(false)
+                .with_jsx(false),
         };
         oxc_source_type = oxc_source_type.with_module(true);
 
@@ -74,9 +82,10 @@ fn benchmark_oxc_single_thread(files: &[PathBuf]) -> (f64, usize) {
             oxc_options.typescript = TypeScriptOptions::default();
         }
         if source_type_kind.is_jsx() {
-            let mut jsx = JsxOptions::default();
-            jsx.runtime = OxcJsxRuntime::Automatic;
-            oxc_options.jsx = jsx;
+            oxc_options.jsx = JsxOptions {
+                runtime: OxcJsxRuntime::Automatic,
+                ..Default::default()
+            };
         }
 
         let transformer = Transformer::new(&allocator, path, &oxc_options);
@@ -122,10 +131,18 @@ fn benchmark_oxc_parallel_32c(files: &[PathBuf]) -> (f64, usize) {
             let allocator = Allocator::default();
             let source_type_kind = SourceType::from_path(path);
             let mut oxc_source_type = match source_type_kind {
-                SourceType::Tsx => OxcSourceType::default().with_typescript(true).with_jsx(true),
-                SourceType::Ts => OxcSourceType::default().with_typescript(true).with_jsx(false),
-                SourceType::Jsx => OxcSourceType::default().with_typescript(false).with_jsx(true),
-                SourceType::Js => OxcSourceType::default().with_typescript(false).with_jsx(false),
+                SourceType::Tsx => OxcSourceType::default()
+                    .with_typescript(true)
+                    .with_jsx(true),
+                SourceType::Ts => OxcSourceType::default()
+                    .with_typescript(true)
+                    .with_jsx(false),
+                SourceType::Jsx => OxcSourceType::default()
+                    .with_typescript(false)
+                    .with_jsx(true),
+                SourceType::Js => OxcSourceType::default()
+                    .with_typescript(false)
+                    .with_jsx(false),
             };
             oxc_source_type = oxc_source_type.with_module(true);
 
@@ -145,9 +162,10 @@ fn benchmark_oxc_parallel_32c(files: &[PathBuf]) -> (f64, usize) {
                 oxc_options.typescript = TypeScriptOptions::default();
             }
             if source_type_kind.is_jsx() {
-                let mut jsx = JsxOptions::default();
-                jsx.runtime = OxcJsxRuntime::Automatic;
-                oxc_options.jsx = jsx;
+                oxc_options.jsx = JsxOptions {
+                    runtime: OxcJsxRuntime::Automatic,
+                    ..Default::default()
+                };
             }
 
             let transformer = Transformer::new(&allocator, path, &oxc_options);
@@ -190,9 +208,13 @@ fn main() {
     let target_dir = PathBuf::from("benchmarks/fixtures");
     let files = collect_source_files(&target_dir);
 
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
     println!("  MAGNON NATIVE BENCHMARK: FAIR APPLES-TO-APPLES COMPARISON (853 files, 4.62 MB)");
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
     println!("Total files found:          {}", files.len());
 
     let total_bytes: usize = files
@@ -200,24 +222,35 @@ fn main() {
         .filter_map(|p| fs::metadata(p).ok().map(|m| m.len() as usize))
         .sum();
     let total_mb = total_bytes as f64 / (1024.0 * 1024.0);
-    println!("Total source size:          {:.2} MB ({} bytes)", total_mb, total_bytes);
-    println!("Number of logical CPU cores: {}", rayon::current_num_threads());
+    println!(
+        "Total source size:          {:.2} MB ({} bytes)",
+        total_mb, total_bytes
+    );
+    println!(
+        "Number of logical CPU cores: {}",
+        rayon::current_num_threads()
+    );
     println!("-----------------------------------------------------------------------------------------\n");
 
     println!("1. Single-Thread Head-to-Head (1 core):");
     let (oxc_single_ms, _) = benchmark_oxc_single_thread(&files);
     let (magnon_single_ms, _) = benchmark_magnon_single_thread(&files);
-    println!("   Standard OXC (1 core):   {:.2}ms ({:.1} files/sec, {:.2} MB/s)",
+    println!(
+        "   Standard OXC (1 core):   {:.2}ms ({:.1} files/sec, {:.2} MB/s)",
         oxc_single_ms,
         files.len() as f64 / (oxc_single_ms / 1000.0),
         total_mb / (oxc_single_ms / 1000.0)
     );
-    println!("   Magnon (1 core):           {:.2}ms ({:.1} files/sec, {:.2} MB/s)",
+    println!(
+        "   Magnon (1 core):           {:.2}ms ({:.1} files/sec, {:.2} MB/s)",
         magnon_single_ms,
         files.len() as f64 / (magnon_single_ms / 1000.0),
         total_mb / (magnon_single_ms / 1000.0)
     );
-    println!("   Speedup on 1 core:       {:.2}x\n", oxc_single_ms / magnon_single_ms);
+    println!(
+        "   Speedup on 1 core:       {:.2}x\n",
+        oxc_single_ms / magnon_single_ms
+    );
 
     println!("2. Multi-Thread Maximum Parallel Setup (all 32 cores):");
 
@@ -237,19 +270,26 @@ fn main() {
     magnon_fast_runs.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let best_magnon_fast = magnon_fast_runs[0];
 
-    println!("   Standard OXC (32 cores Rayon): {:.2}ms ({:.1} files/sec, {:.2} MB/s)",
+    println!(
+        "   Standard OXC (32 cores Rayon): {:.2}ms ({:.1} files/sec, {:.2} MB/s)",
         best_oxc_parallel,
         files.len() as f64 / (best_oxc_parallel / 1000.0),
         total_mb / (best_oxc_parallel / 1000.0)
     );
-    println!("   Magnon (32 cores + Arena Pool):  {:.2}ms ({:.1} files/sec, {:.2} MB/s)",
+    println!(
+        "   Magnon (32 cores + Arena Pool):  {:.2}ms ({:.1} files/sec, {:.2} MB/s)",
         best_magnon_fast,
         files.len() as f64 / (best_magnon_fast / 1000.0),
         total_mb / (best_magnon_fast / 1000.0)
     );
-    println!("   Speedup (Magnon vs OXC on 32c): {:.2}x faster\n", best_oxc_parallel / best_magnon_fast);
+    println!(
+        "   Speedup (Magnon vs OXC on 32c): {:.2}x faster\n",
+        best_oxc_parallel / best_magnon_fast
+    );
 
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
     println!("SUMMARY TABLE (NATIVE RUST):");
     println!("| Engine / Architecture               | Setup          | Wall Time  | Files/sec  | MB/sec   | vs OXC Baseline |");
     println!("| :---------------------------------- | :------------- | :--------- | :--------- | :------- | :-------------- |");

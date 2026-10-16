@@ -27,10 +27,7 @@ pub struct BatchResult {
     pub files: Vec<BatchFileResult>,
 }
 
-pub fn transform_files_parallel(
-    paths: &[PathBuf],
-    options: &TransformOptions,
-) -> BatchResult {
+pub fn transform_files_parallel(paths: &[PathBuf], options: &TransformOptions) -> BatchResult {
     let start_all = Instant::now();
 
     let results: Vec<BatchFileResult> = paths

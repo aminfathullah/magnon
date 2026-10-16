@@ -3,7 +3,9 @@ use std::fs;
 
 #[test]
 fn test_gzip_compression() {
-    let input = b"function helloWorld() { return 'hello world, this is a large test string for gzip!'; }".repeat(50);
+    let input =
+        b"function helloWorld() { return 'hello world, this is a large test string for gzip!'; }"
+            .repeat(50);
     let compressed = compress_gzip(&input, 6).expect("gzip compression should succeed");
     assert!(compressed.len() < input.len());
     assert_eq!(compressed[0], 0x1f);
@@ -12,7 +14,9 @@ fn test_gzip_compression() {
 
 #[test]
 fn test_brotli_compression() {
-    let input = b"const data = Array.from({ length: 1000 }, (_, i) => ({ id: i, name: 'user_' + i }));".repeat(20);
+    let input =
+        b"const data = Array.from({ length: 1000 }, (_, i) => ({ id: i, name: 'user_' + i }));"
+            .repeat(20);
     let compressed = compress_brotli(&input, 5).expect("brotli compression should succeed");
     assert!(compressed.len() < input.len());
 }

@@ -12,8 +12,6 @@ pub use compress::{
 };
 pub use error::MagnonError;
 pub use modularize::{get_preset_package_names, optimize_program_imports, KNOWN_PACKAGE_PRESETS};
-pub use options::{
-    JsxRuntime, PackageImportRule, SourceType, TransformOptions, TransformResult,
-};
+pub use options::{JsxRuntime, PackageImportRule, SourceType, TransformOptions, TransformResult};
 pub use parallel::{transform_files_parallel, BatchFileResult, BatchResult};
 pub use transform::transform_source;

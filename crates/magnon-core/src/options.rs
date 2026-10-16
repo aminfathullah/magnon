@@ -2,16 +2,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum JsxRuntime {
+    #[default]
     Automatic,
     Classic,
-}
-
-impl Default for JsxRuntime {
-    fn default() -> Self {
-        Self::Automatic
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

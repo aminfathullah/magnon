@@ -1,6 +1,4 @@
-use magnon_core::{
-    transform_source, JsxRuntime, PackageImportRule, TransformOptions,
-};
+use magnon_core::{transform_source, JsxRuntime, PackageImportRule, TransformOptions};
 use std::collections::HashMap;
 
 #[test]
@@ -93,8 +91,12 @@ fn test_optimize_package_imports_tabler() {
         ..Default::default()
     };
     let res = transform_source(code, "test.ts", &options).expect("Transform failed");
-    assert!(res.code.contains("@tabler/icons-react/dist/esm/icons/IconUsers.mjs"));
-    assert!(res.code.contains("@tabler/icons-react/dist/esm/icons/IconSearch.mjs"));
+    assert!(res
+        .code
+        .contains("@tabler/icons-react/dist/esm/icons/IconUsers.mjs"));
+    assert!(res
+        .code
+        .contains("@tabler/icons-react/dist/esm/icons/IconSearch.mjs"));
     assert!(!res.code.contains("from \"@tabler/icons-react\";"));
     assert!(!res.code.contains("from '@tabler/icons-react';"));
 }
@@ -203,8 +205,12 @@ fn test_template_case_transformations() {
         ..Default::default()
     };
     let res = transform_source(code, "test.ts", &options).expect("Transform failed");
-    assert!(res.code.contains("test-lib/dist/data_grid_header/DATAGRIDHEADER"));
-    assert!(res.code.contains("test-lib/dist/navigation_bar/NAVIGATIONBAR"));
+    assert!(res
+        .code
+        .contains("test-lib/dist/data_grid_header/DATAGRIDHEADER"));
+    assert!(res
+        .code
+        .contains("test-lib/dist/navigation_bar/NAVIGATIONBAR"));
 }
 
 #[test]
