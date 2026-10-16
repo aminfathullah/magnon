@@ -229,7 +229,7 @@ function obfuscator(pluginOptions = {}) {
     include,
     exclude,
     autoExcludeNodeModules = true,
-    obfuscateEntry = true,
+    obfuscateEntry = false,
     criticalModuleFragments: criticalFragments = [],
     criticalFragments: altCriticalFragments = [],
     minChunkSize = 0,
