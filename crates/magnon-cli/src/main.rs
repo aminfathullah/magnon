@@ -13,7 +13,7 @@ use std::time::Instant;
 #[derive(Parser)]
 #[command(
     name = "magnon",
-    version = "0.1.0",
+    version = "0.1.1",
     about = "Magnon: Ultra-high performance TypeScript/JSX compiler & parallel asset compressor in Rust"
 )]
 struct Cli {
