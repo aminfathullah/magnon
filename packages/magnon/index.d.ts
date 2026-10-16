@@ -84,6 +84,18 @@ export function compression(options?: CompressOptions): any;
 export function compress(options?: CompressOptions): any;
 export function splitChunks(rules?: Record<string, string | string[]>): (id: string) => string | undefined;
 
+export interface ObfuscatorOptions {
+  enable?: boolean;
+  minChunkSize?: number;
+  criticalModuleFragments?: string[];
+  threads?: number;
+  options?: Record<string, any>;
+  verbose?: boolean;
+}
+
+export function obfuscator(options?: ObfuscatorOptions): any;
+export function obfuscate(options?: ObfuscatorOptions): any;
+
 export interface MagnonPluginOptions extends TransformOptions {
   include?: RegExp | string[];
   exclude?: RegExp | string[];

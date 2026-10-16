@@ -1,7 +1,9 @@
-const magnon = require('./index.js');
+const magnon = require("./index.js");
 module.exports = magnon;
 module.exports.default = magnon;
 module.exports.magnon = magnon;
 module.exports.compression = magnon.compression;
 module.exports.compress = magnon.compression;
 module.exports.splitChunks = magnon.splitChunks;
+module.exports.obfuscator = magnon.obfuscator;
+module.exports.obfuscate = magnon.obfuscator;

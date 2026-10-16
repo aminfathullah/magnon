@@ -139,6 +139,22 @@ function testVitePluginHooks() {
   console.log('  PASS: Vite plugin lifecycle hooks and compression integration');
 }
 
+function testObfuscatorPlugin() {
+  const obfDisabled = magnon.obfuscator({ enable: false });
+  assert.strictEqual(obfDisabled.name, "vite-plugin-magnon-obfuscator");
+  assert.strictEqual(obfDisabled.buildStart, undefined);
+
+  const obf = magnon.obfuscator({ enable: true, minChunkSize: 1024 });
+  assert.strictEqual(obf.name, "vite-plugin-magnon-obfuscator");
+  assert.strictEqual(obf.apply, "build");
+  assert.strictEqual(obf.enforce, "post");
+  assert.strictEqual(typeof obf.buildStart, "function");
+  assert.strictEqual(typeof obf.generateBundle, "function");
+  assert.strictEqual(typeof obf.closeBundle, "function");
+
+  console.log("  PASS: Parallel obfuscator Vite plugin lifecycle hooks");
+}
+
 function testNativeCompression() {
   const sampleData = Buffer.from('function example() { return 42; }\n'.repeat(50));
   const gz = magnon.compressGzip(sampleData, 6);
@@ -179,5 +195,6 @@ testSplitChunks();
 testBatchTransform();
 testVitePluginHooks();
 testNativeCompression();
+testObfuscatorPlugin();
 
 console.log('\nAll Magnon integration tests passed successfully.');
