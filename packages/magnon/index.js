@@ -198,6 +198,14 @@ function matchesPattern(str, pattern) {
   return false;
 }
 
+function fixRolldownCjsInterop(code) {
+  if (typeof code !== "string" || !code.includes("__esModule")) return code;
+  return code
+    .replace(/r\|\|!n\|\|!n\.__esModule\|\|!a\.call\(n,`default`\)/g, "(!n||!n.__esModule||!a.call(n,`default`))")
+    .replace(/r\|\|!n\|\|!n\.__esModule\|\|!a\.call\(n,\"default\"\)/g, '(!n||!n.__esModule||!a.call(n,"default"))')
+    .replace(/r\|\|!n\|\|!n\.__esModule\|\|!a\.call\(n,'default'\)/g, "(!n||!n.__esModule||!a.call(n,'default'))");
+}
+
 function createAntiDebugTrap(options = {}) {
   const config = typeof options === "number" ? { interval: options } : options;
   const interval = config.interval || 2000;
@@ -240,11 +248,16 @@ function obfuscator(pluginOptions = {}) {
   const rawInterval = options.debugProtectionInterval ?? debugProtectionInterval ?? obfOptions.debugProtectionInterval;
   const debugInterval = (typeof rawInterval === "number" && rawInterval > 0) ? Math.floor(rawInterval) : 2000;
 
-  delete obfOptions.debugProtection;
-  delete obfOptions.debugProtectionInterval;
+  if (hasDebugProtection) {
+    obfOptions.debugProtection = true;
+    obfOptions.debugProtectionInterval = debugInterval;
+  } else {
+    delete obfOptions.debugProtection;
+    delete obfOptions.debugProtectionInterval;
+  }
 
   const userReserved = Array.isArray(obfOptions.reservedNames) ? obfOptions.reservedNames : [];
-  const defaultReserved = ["^[a-zA-Z]$", "^_[a-zA-Z]$", "^__.*"];
+  const defaultReserved = ["^[a-zA-Z]$", "^_[a-zA-Z]$", "^__.*", "default", "__esModule"];
   obfOptions.reservedNames = Array.from(new Set([...defaultReserved, ...userReserved]));
 
   if (obfOptions.ignoreImports === undefined) {
@@ -341,6 +354,11 @@ function obfuscator(pluginOptions = {}) {
       const resolved = resolvePackage();
       if (!resolved) return;
 
+      for (const output of Object.values(bundle)) {
+        if (!output || output.type !== "chunk" || typeof output.code !== "string") continue;
+        output.code = fixRolldownCjsInterop(output.code);
+      }
+
       const tasks = [];
       const normalize = (id) => id.split(path.sep).join("/");
 
@@ -355,6 +373,13 @@ function obfuscator(pluginOptions = {}) {
         );
 
         if (!isCritical) {
+          if (mergedCriticalFragments.length > 0 && !include) {
+            if (hasDebugProtection && output.isEntry) {
+              output.code = createAntiDebugTrap(debugInterval) + output.code;
+            }
+            continue;
+          }
+
           if (output.code.length < minChunkSize) {
             if (hasDebugProtection && output.isEntry) {
               output.code = createAntiDebugTrap(debugInterval) + output.code;
@@ -658,6 +683,13 @@ function magnonPlugin(options = {}) {
         };
       } catch (err) {
         this.error(`[magnon] Transform error in ${cleanId}: ${err.message}`);
+      }
+    },
+
+    generateBundle(outputOptions, bundle) {
+      for (const output of Object.values(bundle)) {
+        if (!output || output.type !== "chunk" || typeof output.code !== "string") continue;
+        output.code = fixRolldownCjsInterop(output.code);
       }
     },
 
