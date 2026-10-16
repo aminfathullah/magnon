@@ -12,13 +12,56 @@ try {
   }
 }
 
-const { transform, transformBatch } = nativeAddon;
+const {
+  transform,
+  transformBatch,
+  compressGzip,
+  compressBrotli,
+  compressDirectory,
+  compressFiles,
+} = nativeAddon;
+
+function compression(options = {}) {
+  let resolvedConfig;
+  return {
+    name: 'vite-plugin-magnon-compression',
+    apply: 'build',
+    enforce: 'post',
+    configResolved(config) {
+      resolvedConfig = config;
+    },
+    closeBundle() {
+      const root = resolvedConfig?.root || process.cwd();
+      const outDir = path.resolve(root, resolvedConfig?.build?.outDir || 'dist');
+      if (!fs.existsSync(outDir)) return;
+
+      const res = compressDirectory(outDir, {
+        gzip: options.gzip !== false,
+        brotli: options.brotli !== false,
+        gzipLevel: options.gzipLevel ?? 6,
+        brotliQuality: options.brotliQuality ?? 5,
+        threshold: options.threshold ?? 1024,
+        extensions: options.extensions,
+        deleteOriginal: options.deleteOriginal ?? false,
+      });
+
+      if (options.verbose !== false && res.totalFiles > 0) {
+        const origMb = (res.totalOriginalBytes / 1024 / 1024).toFixed(2);
+        const gzMb = (res.totalGzipBytes / 1024 / 1024).toFixed(2);
+        const brMb = (res.totalBrotliBytes / 1024 / 1024).toFixed(2);
+        console.log(`\x1b[32m✓\x1b[0m [magnon] Compressed ${res.totalFiles} assets in ${res.durationMs.toFixed(1)}ms (${origMb}MB -> gz: ${gzMb}MB, br: ${brMb}MB)`);
+      }
+    },
+  };
+}
 
 function magnonPlugin(options = {}) {
   const filter = options.include || /\.[jt]sx?$/;
   const exclude = options.exclude || /node_modules/;
   const prewarm = options.prewarm !== false;
+  const compressOpts = options.compress === true ? {} : options.compress;
   const cache = new Map();
+  let resolvedConfig;
 
   return {
     name: 'vite-plugin-magnon',
@@ -30,9 +73,13 @@ function magnonPlugin(options = {}) {
       };
     },
 
+    configResolved(config) {
+      resolvedConfig = config;
+    },
+
     buildStart() {
       if (!prewarm) return;
-      const root = process.cwd();
+      const root = resolvedConfig?.root || process.cwd();
       const srcDir = path.join(root, 'src');
       if (!fs.existsSync(srcDir)) return;
 
@@ -98,11 +145,41 @@ function magnonPlugin(options = {}) {
         this.error(`[magnon] Transform error in ${cleanId}: ${err.message}`);
       }
     },
+
+    closeBundle() {
+      if (!compressOpts) return;
+      const root = resolvedConfig?.root || process.cwd();
+      const outDir = path.resolve(root, resolvedConfig?.build?.outDir || 'dist');
+      if (!fs.existsSync(outDir)) return;
+
+      const res = compressDirectory(outDir, {
+        gzip: compressOpts.gzip !== false,
+        brotli: compressOpts.brotli !== false,
+        gzipLevel: compressOpts.gzipLevel ?? 6,
+        brotliQuality: compressOpts.brotliQuality ?? 5,
+        threshold: compressOpts.threshold ?? 1024,
+        extensions: compressOpts.extensions,
+        deleteOriginal: compressOpts.deleteOriginal ?? false,
+      });
+
+      if (compressOpts.verbose !== false && res.totalFiles > 0) {
+        const origMb = (res.totalOriginalBytes / 1024 / 1024).toFixed(2);
+        const gzMb = (res.totalGzipBytes / 1024 / 1024).toFixed(2);
+        const brMb = (res.totalBrotliBytes / 1024 / 1024).toFixed(2);
+        console.log(`\x1b[32m✓\x1b[0m [magnon] Compressed ${res.totalFiles} assets in ${res.durationMs.toFixed(1)}ms (${origMb}MB -> gz: ${gzMb}MB, br: ${brMb}MB)`);
+      }
+    },
   };
 }
 
 module.exports = magnonPlugin;
 module.exports.default = magnonPlugin;
 module.exports.magnon = magnonPlugin;
+module.exports.compression = compression;
+module.exports.compress = compression;
 module.exports.transform = transform;
 module.exports.transformBatch = transformBatch;
+module.exports.compressGzip = compressGzip;
+module.exports.compressBrotli = compressBrotli;
+module.exports.compressDirectory = compressDirectory;
+module.exports.compressFiles = compressFiles;

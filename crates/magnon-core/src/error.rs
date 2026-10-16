@@ -28,4 +28,9 @@ pub enum MagnonError {
         #[source]
         source: simdutf8::basic::Utf8Error,
     },
+
+    #[error("Compression error: {message}")]
+    Compression {
+        message: String,
+    },
 }
