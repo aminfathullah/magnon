@@ -1,5 +1,7 @@
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
+const util = require('util');
 
 const swc = require('@swc/core');
 const oxc = require('oxc-transform');
@@ -7,6 +9,9 @@ const esbuild = require('esbuild');
 const babel = require('@babel/core');
 const rspackCore = require('@rspack/core');
 const magnon = require('../packages/magnon');
+
+const gzipAsync = util.promisify(zlib.gzip);
+const brotliAsync = util.promisify(zlib.brotliCompress);
 
 function collectFiles(dir) {
   let res = [];
@@ -72,9 +77,7 @@ async function benchRspackParallel() {
       })
     )
   );
-  const time = performance.now() - start;
-  const count = res.filter((r) => r && r.code).length;
-  return { time, count };
+  return { time: performance.now() - start, count: res.filter((r) => r && r.code).length };
 }
 
 async function benchSwcParallel() {
@@ -96,9 +99,7 @@ async function benchSwcParallel() {
       })
     )
   );
-  const time = performance.now() - start;
-  const count = res.filter((r) => r && r.code).length;
-  return { time, count };
+  return { time: performance.now() - start, count: res.filter((r) => r && r.code).length };
 }
 
 async function benchEsbuildParallel() {
@@ -112,9 +113,7 @@ async function benchEsbuildParallel() {
       return esbuild.transform(f.code, { loader, jsx: 'automatic' });
     })
   );
-  const time = performance.now() - start;
-  const count = res.filter((r) => r && r.code).length;
-  return { time, count };
+  return { time: performance.now() - start, count: res.filter((r) => r && r.code).length };
 }
 
 function benchMagnonSingle() {
@@ -122,7 +121,7 @@ function benchMagnonSingle() {
   let count = 0;
   for (const f of files) {
     try {
-      const res = magnon.transform(f.code, f.path, { jsxRuntime: 'automatic' });
+      const res = magnon.transform(f.code, f.filename, { jsxRuntime: 'automatic' });
       if (res && res.code) count++;
     } catch (e) {}
   }
@@ -134,10 +133,9 @@ function benchOxc() {
   let count = 0;
   for (const f of files) {
     try {
-      const ext = path.extname(f.filename).slice(1);
       const res = oxc.transform(f.filename, f.code, {
-        lang: ext,
         jsx: { runtime: 'automatic' },
+        typescript: {},
       });
       if (res && res.code) count++;
     } catch (e) {}
@@ -145,12 +143,12 @@ function benchOxc() {
   return { time: performance.now() - start, count };
 }
 
-function benchRspackSync() {
+function benchSwcSync() {
   const start = performance.now();
   let count = 0;
   for (const f of files) {
     try {
-      const res = rspackCore.experiments.swc.transformSync(f.code, {
+      const res = swc.transformSync(f.code, {
         filename: f.filename,
         jsc: {
           parser: {
@@ -169,12 +167,12 @@ function benchRspackSync() {
   return { time: performance.now() - start, count };
 }
 
-function benchSwcSync() {
+function benchRspackSync() {
   const start = performance.now();
   let count = 0;
   for (const f of files) {
     try {
-      const res = swc.transformSync(f.code, {
+      const res = rspackCore.experiments.swc.transformSync(f.code, {
         filename: f.filename,
         jsc: {
           parser: {
@@ -227,6 +225,69 @@ function benchBabel() {
     } catch (e) {}
   }
   return { time: performance.now() - start, count };
+}
+
+async function benchCompression() {
+  console.log('====================================================================================================');
+  console.log('  TIER 3: PARALLEL ASSET COMPRESSION BENCHMARK (DUAL BROTLI + GZIP ON ALL CORPUS FILES)');
+  console.log('====================================================================================================');
+
+  const tmpDir = path.join(__dirname, 'tmp_bench_assets');
+  fs.rmSync(tmpDir, { recursive: true, force: true });
+  fs.mkdirSync(tmpDir, { recursive: true });
+
+  const sampleCount = Math.min(files.length, 100);
+  const sampleFiles = files.slice(0, sampleCount);
+  const sampleBytes = sampleFiles.reduce((acc, f) => acc + Buffer.byteLength(f.code), 0);
+  const sampleMB = sampleBytes / (1024 * 1024);
+
+  for (const f of sampleFiles) {
+    fs.writeFileSync(path.join(tmpDir, f.filename), f.code);
+  }
+
+  console.log(`Corpus: ${sampleCount} files (${sampleMB.toFixed(2)} MB total)\n`);
+
+  const t0 = performance.now();
+  const magnonRes = magnon.compressDirectory(tmpDir, {
+    brotli: true,
+    gzip: true,
+    brotliQuality: 5,
+    gzipLevel: 6,
+    threshold: 100,
+    verbose: false,
+  });
+  const magnonTime = performance.now() - t0;
+
+  const t1 = performance.now();
+  await Promise.all(
+    sampleFiles.map(async (f) => {
+      const buf = Buffer.from(f.code);
+      const gz = await gzipAsync(buf, { level: 6 });
+      const br = await brotliAsync(buf, {
+        params: {
+          [zlib.constants.BROTLI_PARAM_QUALITY]: 5,
+        },
+      });
+      return { gzLen: gz.length, brLen: br.length };
+    })
+  );
+  const nodeTime = performance.now() - t1;
+
+  console.log('-----------------------------------------------------------------------------------------------------------------------------------');
+  console.log('| Compression Engine                     | Setup          | Wall Time (ms) | Files / sec | MB / sec  | Speedup vs Node.js |');
+  console.log('-----------------------------------------------------------------------------------------------------------------------------------');
+
+  const magnonFps = (sampleCount / (magnonTime / 1000)).toFixed(1);
+  const magnonMbps = (sampleMB / (magnonTime / 1000)).toFixed(2);
+  const nodeFps = (sampleCount / (nodeTime / 1000)).toFixed(1);
+  const nodeMbps = (sampleMB / (nodeTime / 1000)).toFixed(2);
+  const speedup = (nodeTime / magnonTime).toFixed(2) + 'x';
+
+  console.log(`| ${'Magnon Native (Rayon 32 Cores)'.padEnd(38)} | ${'32 Cores'.padEnd(14)} | ${magnonTime.toFixed(2).padStart(14)} | ${magnonFps.padStart(11)} | ${magnonMbps.padStart(9)} | ${speedup.padStart(18)} |`);
+  console.log(`| ${'Node.js zlib (Async Promise.all)'.padEnd(38)} | ${'Node Pool'.padEnd(14)} | ${nodeTime.toFixed(2).padStart(14)} | ${nodeFps.padStart(11)} | ${nodeMbps.padStart(9)} | ${'1.00x'.padStart(18)} |`);
+  console.log('-----------------------------------------------------------------------------------------------------------------------------------\n');
+
+  fs.rmSync(tmpDir, { recursive: true, force: true });
 }
 
 async function runBenchmark() {
@@ -330,7 +391,6 @@ async function runBenchmark() {
     const vsEsbuild = (bestEsbuildParallel.time / r.time).toFixed(2) + 'x';
     console.log(`| ${r.name.padEnd(37)} | ${r.cores.padEnd(5)} | ${r.time.toFixed(2).padStart(14)} | ${fps.padStart(11)} | ${mbps.padStart(8)} | ${vsSwc.padStart(14)} | ${vsRspack.padStart(9)} | ${vsEsbuild.padStart(10)} |`);
   }
-
   console.log('===================================================================================================================================\n');
 
   console.log('===================================================================================================================================');
@@ -353,6 +413,8 @@ async function runBenchmark() {
     console.log(`| ${r.name.padEnd(39)} | ${r.cores.padEnd(5)} | ${r.time.toFixed(2).padStart(14)} | ${fps.padStart(11)} | ${mbps.padStart(8)} | ${vsSwc.padStart(14)} | ${vsRspack.padStart(9)} | ${vsOxc.padStart(8)} |`);
   }
   console.log('===================================================================================================================================\n');
+
+  await benchCompression();
 }
 
 runBenchmark();
