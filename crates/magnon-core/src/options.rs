@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -14,12 +15,21 @@ impl Default for JsxRuntime {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PackageImportRule {
+    pub transform: String,
+    pub prevent_full_import: Option<bool>,
+    pub skip_default_conversion: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransformOptions {
     pub jsx_runtime: JsxRuntime,
     pub development: bool,
     pub refresh: bool,
     pub sourcemap: bool,
     pub target_es2022: bool,
+    pub optimize_package_imports: Vec<String>,
+    pub modularize_imports: HashMap<String, PackageImportRule>,
 }
 
 impl Default for TransformOptions {
@@ -30,6 +40,8 @@ impl Default for TransformOptions {
             refresh: false,
             sourcemap: false,
             target_es2022: true,
+            optimize_package_imports: Vec::new(),
+            modularize_imports: HashMap::new(),
         }
     }
 }

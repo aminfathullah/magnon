@@ -1,3 +1,3 @@
-import magnon, { compression, compress, MagnonPluginOptions, CompressOptions } from './index';
+import magnon, { compression, compress, splitChunks, MagnonPluginOptions, CompressOptions } from './index';
 export default magnon;
-export { magnon, compression, compress, MagnonPluginOptions, CompressOptions };
+export { magnon, compression, compress, splitChunks, MagnonPluginOptions, CompressOptions };

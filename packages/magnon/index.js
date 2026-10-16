@@ -55,11 +55,41 @@ function compression(options = {}) {
   };
 }
 
+function splitChunks(rules = {}) {
+  const entries = Object.entries(rules);
+  return function manualChunks(id) {
+    if (!id.includes('node_modules')) return;
+    for (const [chunkName, pkgs] of entries) {
+      if (Array.isArray(pkgs)) {
+        for (const pkg of pkgs) {
+          if (id.includes(pkg)) return chunkName;
+        }
+      } else if (typeof pkgs === 'string' && id.includes(pkgs)) {
+        return chunkName;
+      }
+    }
+  };
+}
+
 function magnonPlugin(options = {}) {
   const filter = options.include || /\.[jt]sx?$/;
   const exclude = options.exclude || /node_modules/;
   const prewarm = options.prewarm !== false;
   const compressOpts = options.compress === true ? {} : options.compress;
+  const optimizePackageImports = options.optimizePackageImports === false
+    ? []
+    : (Array.isArray(options.optimizePackageImports)
+        ? options.optimizePackageImports
+        : [
+            '@tabler/icons-react',
+            '@mui/material',
+            '@mui/icons-material',
+            '@mui/lab',
+            'lodash',
+            'lodash-es',
+            'date-fns',
+          ]);
+  const modularizeImports = options.modularizeImports || {};
   const cache = new Map();
   let resolvedConfig;
 
@@ -106,6 +136,8 @@ function magnonPlugin(options = {}) {
         development: options.development || false,
         refresh: options.refresh || false,
         sourcemap: options.sourcemap || false,
+        optimizePackageImports,
+        modularizeImports,
       });
 
       for (const item of batchRes.files) {
@@ -136,6 +168,8 @@ function magnonPlugin(options = {}) {
           development: options.development || false,
           refresh: options.refresh || false,
           sourcemap: options.sourcemap || false,
+          optimizePackageImports,
+          modularizeImports,
         });
         return {
           code: res.code,
@@ -177,6 +211,7 @@ module.exports.default = magnonPlugin;
 module.exports.magnon = magnonPlugin;
 module.exports.compression = compression;
 module.exports.compress = compression;
+module.exports.splitChunks = splitChunks;
 module.exports.transform = transform;
 module.exports.transformBatch = transformBatch;
 module.exports.compressGzip = compressGzip;

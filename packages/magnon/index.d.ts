@@ -1,8 +1,16 @@
+export interface PackageImportRule {
+  transform: string;
+  preventFullImport?: boolean;
+  skipDefaultConversion?: boolean;
+}
+
 export interface TransformOptions {
   jsxRuntime?: 'automatic' | 'classic';
   development?: boolean;
   refresh?: boolean;
   sourcemap?: boolean;
+  optimizePackageImports?: string[] | boolean;
+  modularizeImports?: Record<string, PackageImportRule>;
 }
 
 export interface TransformResult {
@@ -74,6 +82,7 @@ export function compressDirectory(dirPath: string, options?: CompressOptions): B
 export function compressFiles(files: string[], options?: CompressOptions): BatchCompressResult;
 export function compression(options?: CompressOptions): any;
 export function compress(options?: CompressOptions): any;
+export function splitChunks(rules?: Record<string, string | string[]>): (id: string) => string | undefined;
 
 export interface MagnonPluginOptions extends TransformOptions {
   include?: RegExp | string[];

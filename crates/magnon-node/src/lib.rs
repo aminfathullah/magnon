@@ -7,9 +7,17 @@ use magnon_core::{
     compress_directory as core_compress_dir, compress_files_parallel as core_compress_files,
     compress_brotli as core_compress_brotli, compress_gzip as core_compress_gzip,
     transform_files_parallel, transform_source, BatchCompressResult, BatchResult, CompressOptions,
-    JsxRuntime, TransformOptions, TransformResult,
+    JsxRuntime, PackageImportRule, TransformOptions, TransformResult,
 };
+use std::collections::HashMap;
 use std::path::PathBuf;
+
+#[napi(object)]
+pub struct JsPackageImportRule {
+    pub transform: String,
+    pub prevent_full_import: Option<bool>,
+    pub skip_default_conversion: Option<bool>,
+}
 
 #[napi(object)]
 pub struct JsTransformOptions {
@@ -17,6 +25,8 @@ pub struct JsTransformOptions {
     pub development: Option<bool>,
     pub refresh: Option<bool>,
     pub sourcemap: Option<bool>,
+    pub optimize_package_imports: Option<Vec<String>>,
+    pub modularize_imports: Option<HashMap<String, JsPackageImportRule>>,
 }
 
 #[napi(object)]
@@ -126,6 +136,21 @@ fn to_core_options(js_opts: Option<JsTransformOptions>) -> TransformOptions {
         }
         if let Some(sm) = j.sourcemap {
             opts.sourcemap = sm;
+        }
+        if let Some(pkgs) = j.optimize_package_imports {
+            opts.optimize_package_imports = pkgs;
+        }
+        if let Some(rules) = j.modularize_imports {
+            for (k, v) in rules {
+                opts.modularize_imports.insert(
+                    k,
+                    PackageImportRule {
+                        transform: v.transform,
+                        prevent_full_import: v.prevent_full_import,
+                        skip_default_conversion: v.skip_default_conversion,
+                    },
+                );
+            }
         }
     }
     opts

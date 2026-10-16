@@ -1,6 +1,7 @@
 pub mod allocator;
 pub mod compress;
 pub mod error;
+pub mod modularize;
 pub mod options;
 pub mod parallel;
 pub mod transform;
@@ -10,6 +11,9 @@ pub use compress::{
     compress_gzip, compress_single_file, BatchCompressResult, CompressOptions, FileCompressResult,
 };
 pub use error::MagnonError;
-pub use options::{JsxRuntime, SourceType, TransformOptions, TransformResult};
+pub use modularize::{is_mui_component, optimize_program_imports};
+pub use options::{
+    JsxRuntime, PackageImportRule, SourceType, TransformOptions, TransformResult,
+};
 pub use parallel::{transform_files_parallel, BatchFileResult, BatchResult};
 pub use transform::transform_source;

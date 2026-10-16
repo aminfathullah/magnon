@@ -1,5 +1,6 @@
 use crate::allocator::ThreadLocalPool;
 use crate::error::MagnonError;
+use crate::modularize::optimize_program_imports;
 use crate::options::{JsxRuntime, SourceType, TransformOptions, TransformResult};
 use oxc_allocator::Allocator;
 use oxc_codegen::Codegen;
@@ -48,6 +49,8 @@ fn transform_with_allocator(
 
     let mut program = ret.program;
     let path = Path::new(filename);
+
+    optimize_program_imports(allocator, &mut program, options);
 
     let scoping = SemanticBuilder::new()
         .build(&program)

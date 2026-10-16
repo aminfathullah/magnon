@@ -14,7 +14,7 @@ function testSingleTransform() {
     export const getProfile = (id: number): Profile => ({ id, username: "dev" });
   `;
   const tsRes = magnon.transform(tsCode, 'profile.ts');
-  assert(!tsRes.code.contains ? !tsRes.code.includes('interface Profile') : true);
+  assert(!tsRes.code.includes('interface Profile'));
   assert(tsRes.code.includes('getProfile'));
 
   const tsxCode = `
@@ -28,6 +28,63 @@ function testSingleTransform() {
   assert(!tsxRes.code.includes('type Props'));
 
   console.log('  PASS: Single-file transform (TypeScript stripping, JSX automatic runtime)');
+}
+
+function testOptimizePackageImports() {
+  const code = `
+    import { IconUsers, IconSearch as SearchIcon } from '@tabler/icons-react';
+    import { Button, Typography, alpha } from '@mui/material';
+    export const Component = () => {
+      return { IconUsers, SearchIcon, Button, Typography, alpha };
+    };
+  `;
+
+  const res = magnon.transform(code, 'Component.tsx', {
+    optimizePackageImports: ['@tabler/icons-react', '@mui/material'],
+  });
+
+  assert(res.code.includes('@tabler/icons-react/dist/esm/icons/IconUsers.mjs'));
+  assert(res.code.includes('@tabler/icons-react/dist/esm/icons/IconSearch.mjs'));
+  assert(res.code.includes('@mui/material/Button'));
+  assert(res.code.includes('@mui/material/Typography'));
+  assert(res.code.includes('alpha'));
+  assert(res.code.includes('@mui/material'));
+
+  console.log('  PASS: Native package import optimization (Tabler Icons & MUI Material)');
+}
+
+function testModularizeImports() {
+  const code = `
+    import { CustomButton, CustomCard } from 'custom-ui';
+    export const x = { CustomButton, CustomCard };
+  `;
+
+  const res = magnon.transform(code, 'test.tsx', {
+    modularizeImports: {
+      'custom-ui': {
+        transform: 'custom-ui/dist/components/{{member}}',
+      },
+    },
+  });
+
+  assert(res.code.includes('custom-ui/dist/components/CustomButton'));
+  assert(res.code.includes('custom-ui/dist/components/CustomCard'));
+
+  console.log('  PASS: Custom modularize imports with template substitution');
+}
+
+function testSplitChunks() {
+  const manualChunks = magnon.splitChunks({
+    'igniteui-vendor': ['igniteui-react'],
+    'swagger-vendor': ['swagger-ui', 'swagger-client'],
+  });
+
+  assert.strictEqual(manualChunks('/project/node_modules/igniteui-react-grids/index.js'), 'igniteui-vendor');
+  assert.strictEqual(manualChunks('/project/node_modules/swagger-ui-react/index.js'), 'swagger-vendor');
+  assert.strictEqual(manualChunks('/project/node_modules/react/index.js'), undefined);
+  assert.strictEqual(manualChunks('/project/src/App.tsx'), undefined);
+
+  console.log('  PASS: Fast chunk splitting utility');
 }
 
 function testBatchTransform() {
@@ -61,10 +118,14 @@ function testVitePluginHooks() {
   assert.strictEqual(typeof plugin.closeBundle, 'function');
 
   const sampleId = '/virtual/Component.tsx';
-  const sampleCode = 'export const Component = () => <div>Hello Vite</div>;';
+  const sampleCode = `
+    import { IconUsers } from '@tabler/icons-react';
+    export const Component = () => <div>{IconUsers}</div>;
+  `;
   const res = plugin.transform(sampleCode, sampleId);
   assert(res && res.code);
   assert(res.code.includes('react/jsx-runtime'));
+  assert(res.code.includes('@tabler/icons-react/dist/esm/icons/IconUsers.mjs'));
 
   const ignoredId = '/virtual/node_modules/dep/index.js';
   const ignoredRes = plugin.transform('const a = 1;', ignoredId);
@@ -112,6 +173,9 @@ function testNativeCompression() {
 }
 
 testSingleTransform();
+testOptimizePackageImports();
+testModularizeImports();
+testSplitChunks();
 testBatchTransform();
 testVitePluginHooks();
 testNativeCompression();
