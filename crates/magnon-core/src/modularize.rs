@@ -137,7 +137,7 @@ fn resolve_rule<'a>(
             "@tabler/icons-react" => {
                 Some(("@tabler/icons-react/dist/esm/icons/{{member}}.mjs", false))
             }
-            "@mui/icons-material" => Some(("@mui/icons-material/{{member}}", false)),
+            "@mui/icons-material" => Some(("@mui/icons-material/esm/{{member}}", false)),
             "@mui/material" => Some(("@mui/material/{{member}}", true)),
             "@mui/lab" => Some(("@mui/lab/{{member}}", false)),
             "lodash" => Some(("lodash/{{member}}", false)),

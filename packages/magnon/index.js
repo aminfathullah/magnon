@@ -61,12 +61,13 @@ function splitChunks(rules = {}) {
   const entries = Object.entries(rules);
   return function manualChunks(id) {
     if (!id.includes("node_modules")) return;
+    const pkgPath = id.slice(id.lastIndexOf("node_modules/"));
     for (const [chunkName, pkgs] of entries) {
       if (Array.isArray(pkgs)) {
         for (const pkg of pkgs) {
-          if (id.includes(pkg)) return chunkName;
+          if (pkgPath.includes(pkg)) return chunkName;
         }
-      } else if (typeof pkgs === "string" && id.includes(pkgs)) {
+      } else if (typeof pkgs === "string" && pkgPath.includes(pkgs)) {
         return chunkName;
       }
     }
