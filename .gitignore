@@ -1,0 +1,15 @@
+target/
+node_modules/
+dist/
+dist-rspack/
+build/
+coverage/
+*.log
+.DS_Store
+.env
+.env.local
+.env.*.local
+analyse.html
+packages/magnon/magnon.node
+packages/magnon/bin/magnon-native
+benchmarks/fixtures/

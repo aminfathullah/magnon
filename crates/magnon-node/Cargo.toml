@@ -1,0 +1,17 @@
+[package]
+name = "magnon-node"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+magnon-core = { path = "../magnon-core" }
+napi = { version = "3.14.2", default-features = false, features = ["napi4"] }
+napi-derive = "3.6.12"
+mimalloc = "0.1.52"
+
+[build-dependencies]
+napi-build = "2.6.0"

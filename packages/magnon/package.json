@@ -1,0 +1,55 @@
+{
+  "name": "magnon",
+  "version": "0.1.0",
+  "description": "Ultra-high performance Rust-powered TypeScript/JSX compiler, batch transformer and Vite plugin",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "bin": {
+    "magnon": "bin/magnon.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js",
+      "require": "./index.js"
+    },
+    "./vite": {
+      "types": "./vite.d.ts",
+      "import": "./vite.js",
+      "require": "./vite.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "vite.js",
+    "vite.d.ts",
+    "magnon.node",
+    "bin/magnon.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aminfathullah/magnon.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aminfathullah/magnon/issues"
+  },
+  "homepage": "https://github.com/aminfathullah/magnon#readme",
+  "keywords": [
+    "compiler",
+    "typescript",
+    "jsx",
+    "react",
+    "vite",
+    "vite-plugin",
+    "rust",
+    "swc",
+    "oxc",
+    "turbopack",
+    "rspack"
+  ],
+  "author": "Amin Fathullah <amin_fathullah@yahoo.com>",
+  "license": "MIT"
+}

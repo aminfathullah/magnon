@@ -1,0 +1,40 @@
+packages:
+  - 'packages/*'
+
+autoInstallPeers: false
+
+allowedDeprecatedVersions:
+  '@mui/base': '*'
+  fstream: '*'
+  glob: 7.2.3
+  inflight: '*'
+  lodash.isequal: '*'
+  node-domexception: '*'
+  rimraf: 2.7.1 || 3.0.2
+  trim: '*'
+
+peerDependencyRules:
+  ignoreMissing:
+    - '@react-three/fiber'
+    - jquery
+    - konva
+    - react-konva
+    - react-native
+    - react-zdog
+    - three
+    - zdog
+  allowedVersions:
+    apexcharts: ^3.0.0
+    react: ^18.0.0
+
+allowBuilds:
+  '@parcel/watcher': true
+  '@scarf/scarf': false
+  '@tree-sitter-grammars/tree-sitter-yaml': true
+  core-js: false
+  core-js-pure: false
+  cypress: true
+  esbuild: true
+  plain-crypto-js: false
+  tree-sitter: true
+  tree-sitter-json: true
