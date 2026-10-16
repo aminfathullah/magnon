@@ -191,11 +191,28 @@ function codeSplitting(options = {}) {
 
   manualChunksFn.groups = rolldownGroups;
   manualChunksFn.manualChunks = manualChunksFn;
-  return manualChunksFn;
+  return {
+    groups: rolldownGroups,
+    manualChunks: manualChunksFn,
+  };
 }
 
 function splitChunks(rules = {}) {
-  return codeSplitting(rules);
+  const res = codeSplitting(rules);
+  return res.manualChunks;
+}
+
+function matchesPattern(str, pattern) {
+  if (!pattern) return false;
+  if (pattern instanceof RegExp) return pattern.test(str);
+  if (typeof pattern === "string") return str.includes(pattern);
+  if (typeof pattern === "function") return Boolean(pattern(str));
+  if (Array.isArray(pattern)) return pattern.some((p) => matchesPattern(str, p));
+  return false;
+}
+
+function createAntiDebugTrap(interval = 2000) {
+  return `(function(){if(typeof window==="undefined")return;var _g=typeof window!=="undefined"?window:(typeof globalThis!=="undefined"?globalThis:self);if(!_g||!_g.document)return;function _trap(c){if(typeof c!=="number")c=0;if(c>30)return;try{(function(){return!0;}["constructor"]("debu"+"gger")["call"]("action"));}catch(_){}_trap(c+1);}function _check(){var t=Date.now();(function(){return!0;}["constructor"]("debu"+"gger")["call"]("action"));if(Date.now()-t>100){try{console.clear();}catch(_){}_trap(0);}}function _checkDock(){try{var wd=_g.outerWidth-_g.innerWidth,hd=_g.outerHeight-_g.innerHeight;if(wd>160||hd>160){try{console.clear();}catch(_){}_trap(0);}}catch(_){}}try{_check();_checkDock();setInterval(_check,${interval});setInterval(_checkDock,${Math.max(500, Math.floor(interval / 2))});_g.addEventListener("resize",_checkDock);_g.addEventListener("focus",_check);_g.addEventListener("keydown",function(e){if(e.key==="F12"||((e.ctrlKey||e.metaKey)&&e.shiftKey&&(e.key==="I"||e.key==="i"||e.key==="J"||e.key==="j"||e.key==="C"||e.key==="c"))||((e.ctrlKey||e.metaKey)&&(e.key==="U"||e.key==="u"))||((e.ctrlKey||e.metaKey)&&(e.key==="S"||e.key==="s"))){try{e.preventDefault();e.stopPropagation();}catch(_){}_trap(0);}},true);}catch(_){}})();\n`;
 }
 
 function obfuscator(pluginOptions = {}) {
@@ -204,29 +221,105 @@ function obfuscator(pluginOptions = {}) {
     return { name: "vite-plugin-magnon-obfuscator" };
   }
 
-  const minChunkSize = pluginOptions.minChunkSize ?? (8 * 1024);
+  const include = pluginOptions.include;
+  const exclude = pluginOptions.exclude;
+  const autoExcludeNodeModules = pluginOptions.autoExcludeNodeModules !== false;
+  const obfuscateEntry = pluginOptions.obfuscateEntry !== false;
   const criticalFragments = pluginOptions.criticalModuleFragments || [];
-  const workerCount = pluginOptions.threads || Math.min(os.cpus().length || 4, 8);
-  const obfOptions = pluginOptions.options || {};
+  const minChunkSize = pluginOptions.minChunkSize ?? 0;
+  const workerCount = pluginOptions.threads || Math.min(os.cpus()?.length || 4, 8);
   const verbose = pluginOptions.verbose !== false;
+
+  const obfOptions = Object.assign({}, pluginOptions.options || {});
+  const topLevelKeys = [
+    "compact", "controlFlowFlattening", "controlFlowFlatteningThreshold",
+    "deadCodeInjection", "deadCodeInjectionThreshold", "debugProtection",
+    "debugProtectionInterval", "disableConsoleOutput", "identifierNamesGenerator",
+    "identifiersPrefix", "ignoreImports", "log", "numbersToExpressions",
+    "renameGlobals", "selfDefending", "simplify", "splitStrings",
+    "splitStringsChunkLength", "stringArray", "stringArrayCallsTransform",
+    "stringArrayCallsTransformThreshold", "stringArrayEncoding",
+    "stringArrayIndexShift", "stringArrayRotate", "stringArrayShuffle",
+    "stringArrayWrappersCount", "stringArrayWrappersChainedCalls",
+    "stringArrayWrappersParametersMaxCount", "stringArrayWrappersType",
+    "stringArrayThreshold", "target", "transformObjectKeys", "unicodeEscapeSequence"
+  ];
+
+  for (const k of topLevelKeys) {
+    if (pluginOptions[k] !== undefined && obfOptions[k] === undefined) {
+      obfOptions[k] = pluginOptions[k];
+    }
+  }
+
+  const hasDebugProtection = Boolean(
+    obfOptions.debugProtection !== undefined ? obfOptions.debugProtection : (pluginOptions.debugProtection !== undefined ? pluginOptions.debugProtection : pluginOptions.options?.debugProtection)
+  );
+  let debugInterval = 2000;
+  const rawInterval = obfOptions.debugProtectionInterval ?? pluginOptions.debugProtectionInterval ?? pluginOptions.options?.debugProtectionInterval;
+  if (typeof rawInterval === "number" && rawInterval > 0) {
+    debugInterval = Math.floor(rawInterval);
+  }
+  obfOptions.debugProtection = false;
+  delete obfOptions.debugProtectionInterval;
+
+  const userReserved = Array.isArray(obfOptions.reservedNames) ? obfOptions.reservedNames : [];
+  const defaultReserved = ["^[a-zA-Z]$", "^_[a-zA-Z]$", "^__.*"];
+  obfOptions.reservedNames = Array.from(new Set([...defaultReserved, ...userReserved]));
+
+  if (obfOptions.ignoreImports === undefined) {
+    obfOptions.ignoreImports = true;
+  }
+  if (!obfOptions.target) {
+    obfOptions.target = "browser";
+  }
 
   let workers = [];
   const readyPromises = [];
+  let pkgPath = null;
+  let hasResolvedPkg = false;
 
   const workerScript = `
     const { parentPort, workerData } = require("worker_threads");
     const JavaScriptObfuscator = require(workerData.pkgPath);
-    parentPort.postMessage({ ready: true });
+    parentPort.postMessage({ type: "ready" });
 
     parentPort.on("message", ({ id, code, options }) => {
       try {
-        const res = JavaScriptObfuscator.obfuscate(code, options).getObfuscatedCode();
-        parentPort.postMessage({ id, code: res });
+        const res = JavaScriptObfuscator.obfuscate(code, options);
+        parentPort.postMessage({
+          id,
+          success: true,
+          code: res.getObfuscatedCode(),
+          map: options.sourceMap ? res.getSourceMap() : null
+        });
       } catch (err) {
-        parentPort.postMessage({ id, error: err.message });
+        parentPort.postMessage({
+          id,
+          success: false,
+          error: err ? (err.stack || err.message) : "Obfuscation failed"
+        });
       }
     });
   `;
+
+  function resolvePackage() {
+    if (hasResolvedPkg) return pkgPath;
+    hasResolvedPkg = true;
+    const lookupDirs = [process.cwd(), __dirname];
+    let curr = process.cwd();
+    for (let i = 0; i < 4; i++) {
+      const parent = path.dirname(curr);
+      if (parent === curr) break;
+      lookupDirs.push(parent);
+      curr = parent;
+    }
+    try {
+      pkgPath = require.resolve("javascript-obfuscator", { paths: lookupDirs });
+    } catch (_) {
+      pkgPath = null;
+    }
+    return pkgPath;
+  }
 
   return {
     name: "vite-plugin-magnon-obfuscator",
@@ -234,112 +327,208 @@ function obfuscator(pluginOptions = {}) {
     enforce: "post",
 
     buildStart() {
-      let pkgPath;
-      try {
-        pkgPath = require.resolve("javascript-obfuscator", { paths: [process.cwd(), __dirname] });
-      } catch (e) {
+      const resolved = resolvePackage();
+      if (!resolved) {
+        if (verbose) {
+          console.warn("\x1b[33m!\x1b[0m [magnon] 'javascript-obfuscator' package not found. Skipping obfuscation. (Install it via 'pnpm add -D javascript-obfuscator')");
+        }
         return;
       }
 
-      for (let i = 0; i < workerCount; i++) {
-        const w = new Worker(workerScript, { eval: true, workerData: { pkgPath } });
-        readyPromises.push(new Promise((resolve) => {
-          w.once("message", () => resolve(w));
-        }));
-        workers.push(w);
+      if (workerCount > 1) {
+        for (let i = 0; i < workerCount; i++) {
+          try {
+            const w = new Worker(workerScript, { eval: true, workerData: { pkgPath: resolved } });
+            readyPromises.push(new Promise((res) => {
+              const onMsg = (msg) => {
+                if (msg && msg.type === "ready") {
+                  w.off("message", onMsg);
+                  res(w);
+                }
+              };
+              w.on("message", onMsg);
+            }));
+            workers.push(w);
+          } catch (_) {
+            break;
+          }
+        }
       }
     },
 
-    async generateBundle(_, bundle) {
-      if (workers.length === 0) return;
-      await Promise.all(readyPromises);
-
-      const normalize = (id) => id.split(path.sep).join("/");
-      const collect = (fileName, seen = new Set()) => {
-        if (seen.has(fileName)) return seen;
-        const c = bundle[fileName];
-        if (!c || c.type !== "chunk") return seen;
-        seen.add(fileName);
-        c.imports.forEach((imp) => collect(imp, seen));
-        return seen;
-      };
-
-      const startup = Object.values(bundle).reduce((acc, c) => {
-        if (c.type === "chunk" && c.isEntry) collect(c.fileName, acc);
-        return acc;
-      }, new Set());
-
-      const critical = Object.values(bundle).reduce((acc, c) => {
-        if (c.type !== "chunk") return acc;
-        const mods = Object.keys(c.modules || {}).map(normalize);
-        if (criticalFragments.some((frag) => mods.some((m) => m.includes(frag)))) {
-          collect(c.fileName, acc);
-        }
-        return acc;
-      }, new Set());
+    async generateBundle(outputOptions, bundle) {
+      const resolved = resolvePackage();
+      if (!resolved) return;
 
       const tasks = [];
-      Object.entries(bundle).forEach(([fileName, output]) => {
-        if (
-          output.type !== "chunk" ||
-          startup.has(fileName) ||
-          critical.has(fileName) ||
-          output.code.length < minChunkSize
-        ) {
-          return;
+      const normalize = (id) => id.split(path.sep).join("/");
+
+      for (const [fileName, output] of Object.entries(bundle)) {
+        if (!output || output.type !== "chunk" || typeof output.code !== "string") {
+          continue;
         }
 
         const mods = Object.keys(output.modules || {}).map(normalize);
-        const hasApp = mods.some((m) => m.includes("/src/"));
-        const hasVendor = mods.some((m) => m.includes("/node_modules/"));
-        if (!hasApp || hasVendor) return;
+        const isCritical = criticalFragments.length > 0 && criticalFragments.some((frag) =>
+          mods.some((m) => m.includes(frag)) || fileName.includes(frag)
+        );
+
+        if (!isCritical) {
+          if (output.code.length < minChunkSize) {
+            if (hasDebugProtection && output.isEntry) {
+              output.code = createAntiDebugTrap(debugInterval) + output.code;
+            }
+            continue;
+          }
+
+          if (include && !matchesPattern(fileName, include) && !mods.some((m) => matchesPattern(m, include))) {
+            if (hasDebugProtection && output.isEntry) {
+              output.code = createAntiDebugTrap(debugInterval) + output.code;
+            }
+            continue;
+          }
+
+          if (exclude && (matchesPattern(fileName, exclude) || mods.some((m) => matchesPattern(m, exclude)))) {
+            if (hasDebugProtection && output.isEntry) {
+              output.code = createAntiDebugTrap(debugInterval) + output.code;
+            }
+            continue;
+          }
+
+          if (!obfuscateEntry && output.isEntry) {
+            if (hasDebugProtection) {
+              output.code = createAntiDebugTrap(debugInterval) + output.code;
+            }
+            continue;
+          }
+
+          if (autoExcludeNodeModules) {
+            const isVendorName = /[\\/](vendor|node_modules)[\\/]/i.test(fileName)
+              || fileName.includes("vendor-")
+              || fileName.includes("-vendor")
+              || fileName.includes(".vendor.");
+            const allModulesVendor = mods.length > 0 && mods.every((m) => m.includes("/node_modules/"));
+
+            if (isVendorName || allModulesVendor) {
+              continue;
+            }
+          }
+        }
+
+        if (hasDebugProtection && output.isEntry) {
+          output.code = createAntiDebugTrap(debugInterval) + output.code;
+        }
 
         tasks.push({ fileName, output });
-      });
+      }
 
       if (tasks.length === 0) return;
 
       const t0 = performance.now();
-      let taskIdx = 0;
-      let completed = 0;
+      const taskMap = new Map();
+      tasks.forEach((t) => taskMap.set(t.fileName, t));
 
-      await new Promise((resolve, reject) => {
-        const dispatch = (worker) => {
-          if (taskIdx >= tasks.length) {
-            if (completed === tasks.length) resolve();
-            return;
-          }
-          const task = tasks[taskIdx++];
-          worker.postMessage({
-            id: task.fileName,
-            code: task.output.code,
-            options: { ...obfOptions, inputFileName: task.fileName }
-          });
-        };
+      if (workers.length > 1) {
+        await Promise.all(readyPromises);
 
-        workers.forEach((w) => {
-          w.on("message", (msg) => {
-            if (msg.ready) return;
-            const targetTask = tasks.find((t) => t.fileName === msg.id);
-            if (targetTask && msg.code) {
-              targetTask.output.code = msg.code;
+        let taskIdx = 0;
+        let completed = 0;
+        let successful = 0;
+
+        await new Promise((resolve) => {
+          let isResolved = false;
+
+          const dispatch = (worker) => {
+            if (isResolved) return;
+            if (taskIdx >= tasks.length) {
+              if (completed >= tasks.length && !isResolved) {
+                isResolved = true;
+                resolve();
+              }
+              return;
             }
-            completed++;
+
+            const task = tasks[taskIdx++];
+            worker.postMessage({
+              id: task.fileName,
+              code: task.output.code,
+              options: Object.assign({}, obfOptions, { inputFileName: task.fileName })
+            });
+          };
+
+          workers.forEach((w) => {
+            const onMsg = (msg) => {
+              if (!msg || msg.type === "ready") return;
+              const target = taskMap.get(msg.id);
+              if (target) {
+                if (msg.success && msg.code) {
+                  target.output.code = msg.code;
+                  if (msg.map && target.output.map) {
+                    try { target.output.map = JSON.parse(msg.map); } catch (_) {}
+                  }
+                  successful++;
+                } else if (msg.error && verbose) {
+                  console.warn(`\x1b[33m!\x1b[0m [magnon] Obfuscation warning for ${msg.id}: ${msg.error}`);
+                }
+              }
+              completed++;
+              dispatch(w);
+            };
+
+            const onErr = (err) => {
+              if (verbose) {
+                console.warn(`\x1b[33m!\x1b[0m [magnon] Worker thread error: ${err?.message || err}`);
+              }
+              completed++;
+              dispatch(w);
+            };
+
+            w.on("message", onMsg);
+            w.on("error", onErr);
             dispatch(w);
           });
-          w.on("error", reject);
-          dispatch(w);
         });
-      });
 
-      const dt = performance.now() - t0;
-      if (verbose) {
-        console.log(`\x1b[32m✓\x1b[0m [magnon] Parallel obfuscated ${tasks.length} chunks across ${workers.length} workers in ${dt.toFixed(1)}ms`);
+        const dt = performance.now() - t0;
+        if (verbose) {
+          console.log(`\x1b[32m✓\x1b[0m [magnon] Parallel obfuscated ${successful}/${tasks.length} chunks across ${workers.length} workers in ${dt.toFixed(1)}ms`);
+        }
+      } else {
+        const JavaScriptObfuscator = require(resolved);
+        let successful = 0;
+
+        for (const task of tasks) {
+          try {
+            const res = JavaScriptObfuscator.obfuscate(
+              task.output.code,
+              Object.assign({}, obfOptions, { inputFileName: task.fileName })
+            );
+            task.output.code = res.getObfuscatedCode();
+            if (obfOptions.sourceMap && task.output.map) {
+              const sm = res.getSourceMap();
+              if (sm) {
+                try { task.output.map = JSON.parse(sm); } catch (_) {}
+              }
+            }
+            successful++;
+          } catch (err) {
+            if (verbose) {
+              console.warn(`\x1b[33m!\x1b[0m [magnon] Obfuscation failed for ${task.fileName}: ${err.message}`);
+            }
+          }
+        }
+
+        const dt = performance.now() - t0;
+        if (verbose) {
+          console.log(`\x1b[32m✓\x1b[0m [magnon] Obfuscated ${successful}/${tasks.length} chunks in ${dt.toFixed(1)}ms`);
+        }
       }
     },
 
     closeBundle() {
-      workers.forEach((w) => w.terminate());
+      workers.forEach((w) => {
+        try { w.terminate(); } catch (_) {}
+      });
       workers = [];
     }
   };
@@ -370,7 +559,6 @@ function magnonPlugin(options = {}) {
             "ramda",
             "react-bootstrap",
             "antd",
-            "recharts",
             "rxjs",
           ]);
   const modularizeImports = options.modularizeImports || {};
@@ -472,16 +660,16 @@ function magnonPlugin(options = {}) {
 
       for (const item of batchRes.files) {
         if (item.success && item.outputCode) {
-          cache.set(item.path, {
+          cache.set(path.normalize(item.path), {
             code: item.outputCode,
-            map: null,
+            map: item.map ? JSON.parse(item.map) : null,
           });
         }
       }
     },
 
     transform(code, id) {
-      const cleanId = id.split("?")[0];
+      const cleanId = path.normalize(id.split("?")[0]);
       if (exclude.test(cleanId) || !filter.test(cleanId)) {
         return null;
       }

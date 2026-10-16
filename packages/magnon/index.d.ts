@@ -104,21 +104,27 @@ export interface CodeSplittingOptions {
 }
 
 export interface CodeSplittingResult {
-  (id: string): string | undefined;
   groups: RolldownGroup[];
   manualChunks: (id: string) => string | undefined;
 }
 
 export function codeSplitting(options?: CodeSplittingOptions | Record<string, string | string[]>): CodeSplittingResult;
-export function splitChunks(options?: CodeSplittingOptions | Record<string, string | string[]>): CodeSplittingResult;
+export function splitChunks(options?: CodeSplittingOptions | Record<string, string | string[]>): (id: string) => string | undefined;
 
 export interface ObfuscatorOptions {
   enable?: boolean;
-  minChunkSize?: number;
+  include?: RegExp | string | (RegExp | string)[] | ((fileName: string, chunk: any) => boolean);
+  exclude?: RegExp | string | (RegExp | string)[] | ((fileName: string, chunk: any) => boolean);
+  autoExcludeNodeModules?: boolean;
+  obfuscateEntry?: boolean;
   criticalModuleFragments?: string[];
+  minChunkSize?: number;
   threads?: number;
+  debugProtection?: boolean;
+  debugProtectionInterval?: number | boolean;
   options?: Record<string, any>;
   verbose?: boolean;
+  [key: string]: any;
 }
 
 export function obfuscator(options?: ObfuscatorOptions): any;

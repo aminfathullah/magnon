@@ -108,10 +108,10 @@ function testCodeSplittingPresets() {
   const agGroup = reactSplit.groups.find(g => g.name === 'ag-grid-vendor');
   assert(agGroup);
 
-  assert.strictEqual(reactSplit('/project/node_modules/react/index.js'), 'core-vendor');
-  assert.strictEqual(reactSplit('/project/node_modules/ag-grid-react/index.js'), 'ag-grid-vendor');
+  assert.strictEqual(reactSplit.manualChunks('/project/node_modules/react/index.js'), 'core-vendor');
+  assert.strictEqual(reactSplit.manualChunks('/project/node_modules/ag-grid-react/index.js'), 'ag-grid-vendor');
 
-  const vueSplit = magnon.codeSplitting({ framework: 'vue' });
+  const vueSplit = magnon.splitChunks({ framework: 'vue' });
   assert.strictEqual(vueSplit('/project/node_modules/vue/dist/vue.esm.js'), 'core-vendor');
 
   console.log('  PASS: Framework presets for code splitting (React and Vue)');
@@ -202,12 +202,19 @@ function testVitePluginHooks() {
   console.log('  PASS: Vite plugin lifecycle hooks and compression integration');
 }
 
-function testObfuscatorPlugin() {
+async function testObfuscatorPlugin() {
   const obfDisabled = magnon.obfuscator({ enable: false });
   assert.strictEqual(obfDisabled.name, "vite-plugin-magnon-obfuscator");
   assert.strictEqual(obfDisabled.buildStart, undefined);
 
-  const obf = magnon.obfuscator({ enable: true, minChunkSize: 1024 });
+  const obf = magnon.obfuscator({
+    enable: true,
+    minChunkSize: 10,
+    debugProtection: true,
+    debugProtectionInterval: true,
+    obfuscateEntry: true,
+    criticalModuleFragments: ["secret-module"],
+  });
   assert.strictEqual(obf.name, "vite-plugin-magnon-obfuscator");
   assert.strictEqual(obf.apply, "build");
   assert.strictEqual(obf.enforce, "post");
@@ -215,7 +222,46 @@ function testObfuscatorPlugin() {
   assert.strictEqual(typeof obf.generateBundle, "function");
   assert.strictEqual(typeof obf.closeBundle, "function");
 
-  console.log("  PASS: Parallel obfuscator Vite plugin lifecycle hooks");
+  obf.buildStart();
+
+  const bundle = {
+    "assets/index-abc.js": {
+      type: "chunk",
+      fileName: "assets/index-abc.js",
+      isEntry: true,
+      code: "function mainApp() { var flag = 1; return flag; } mainApp();",
+      modules: {
+        "/project/src/index.tsx": {},
+      },
+    },
+    "assets/secret-chunk.js": {
+      type: "chunk",
+      fileName: "assets/secret-chunk.js",
+      isEntry: false,
+      code: "function secretLogic() { var token = 'xyz987'; return token; }",
+      modules: {
+        "/project/src/secret-module.ts": {},
+      },
+    },
+    "assets/vendor.js": {
+      type: "chunk",
+      fileName: "assets/vendor.js",
+      isEntry: false,
+      code: "function vendorReact() { return 'react'; }",
+      modules: {
+        "/project/node_modules/react/index.js": {},
+      },
+    },
+  };
+
+  await obf.generateBundle({}, bundle);
+  obf.closeBundle();
+
+  assert(bundle["assets/index-abc.js"].code.includes("debugger") || bundle["assets/index-abc.js"].code.includes("setInterval"));
+  assert.notStrictEqual(bundle["assets/secret-chunk.js"].code, "function secretLogic() { var token = 'xyz987'; return token; }");
+  assert.strictEqual(bundle["assets/vendor.js"].code, "function vendorReact() { return 'react'; }");
+
+  console.log("  PASS: Parallel obfuscator Vite plugin lifecycle hooks and bundle processing");
 }
 
 function testNativeCompression() {
@@ -251,15 +297,22 @@ function testNativeCompression() {
   console.log('  PASS: Native multi-threaded Brotli and Gzip batch compression');
 }
 
-testSingleTransform();
-testOptimizePackageImports();
-testModularizeImports();
-testSplitChunks();
-testCodeSplittingPresets();
-testExtendedLibraryModularization();
-testBatchTransform();
-testVitePluginHooks();
-testNativeCompression();
-testObfuscatorPlugin();
+async function runAllTests() {
+  testSingleTransform();
+  testOptimizePackageImports();
+  testModularizeImports();
+  testSplitChunks();
+  testCodeSplittingPresets();
+  testExtendedLibraryModularization();
+  testBatchTransform();
+  testVitePluginHooks();
+  testNativeCompression();
+  await testObfuscatorPlugin();
 
-console.log('\nAll Magnon integration tests passed successfully.');
+  console.log('\nAll Magnon integration tests passed successfully.');
+}
+
+runAllTests().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

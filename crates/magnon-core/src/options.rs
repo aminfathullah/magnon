@@ -60,7 +60,11 @@ pub enum SourceType {
 impl SourceType {
     pub fn from_path<P: AsRef<Path>>(path: P) -> Self {
         let path = path.as_ref();
-        match path.extension().and_then(|ext| ext.to_str()) {
+        let path_str = path.to_string_lossy();
+        let clean_path = path_str.split('?').next().unwrap_or(&path_str);
+        let clean_path = clean_path.split('#').next().unwrap_or(clean_path);
+        let p = Path::new(clean_path);
+        match p.extension().and_then(|ext| ext.to_str()) {
             Some("tsx") => Self::Tsx,
             Some("ts") | Some("mts") | Some("cts") => Self::Ts,
             Some("jsx") => Self::Jsx,

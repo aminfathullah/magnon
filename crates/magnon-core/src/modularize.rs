@@ -344,13 +344,6 @@ fn resolve_rule<'a>(
                 include: None,
                 exclude: None,
             }),
-            "recharts" => Some(ResolvedRule {
-                transform: "recharts/es6/component/{{member}}",
-                skip_default_conversion: false,
-                pascal_case_only: true,
-                include: None,
-                exclude: None,
-            }),
             "rxjs" => Some(ResolvedRule {
                 transform: "rxjs/{{member}}",
                 skip_default_conversion: false,
