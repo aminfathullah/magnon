@@ -43,8 +43,6 @@ function compression(options = {}) {
       const outDir = path.resolve(root, resolvedConfig?.build?.outDir || "dist");
       if (!fs.existsSync(outDir)) return;
 
-      syncRuntimeHash(outDir, root);
-
       const res = compressDirectory(outDir, {
         gzip: options.gzip !== false,
         brotli: options.brotli !== false,
@@ -207,63 +205,20 @@ function matchesPattern(str, pattern) {
   return false;
 }
 
-function fixRolldownCjsInterop(code) {
-  if (typeof code !== "string") return code;
-  code = code.replace(
-    /(?:[a-zA-Z0-9_$]+\s*\|\|\s*)?!([a-zA-Z0-9_$]+)\s*\|\|\s*!\1\.__esModule\s*\|\|\s*!([a-zA-Z0-9_$]+)\.call\(\1,\s*(["'`])(default)\3\)/g,
-    "(!$1||!$2.call($1,$3$4$3))"
+function patchRolldownCjsInteropCode(code) {
+  if (typeof code !== "string" || !code.includes("__esModule")) return code;
+  return code.replace(
+    /(?:[a-zA-Z0-9_$]+\s*\|\|\s*)?!([a-zA-Z0-9_$]+)\s*\|\|\s*!\1\.__esModule\s*\|\|\s*!([a-zA-Z0-9_$]+)\.call\(\1,\s*(["'`])default\3\)/g,
+    "(!$1||!$2.call($1,$3default$3))"
   );
-  const importMatch = code.match(/import\s*\{([^}]+)\}\s*from\s*["'`][^"'`]*rolldown-runtime[^"'`]*["'`]/);
-  if (importMatch) {
-    const specs = importMatch[1].split(",");
-    for (const s of specs) {
-      const asMatch = s.trim().match(/\bo\s+as\s+([a-zA-Z0-9_$]+)/);
-      const exactMatch = s.trim().match(/^o$/);
-      const fn = asMatch ? asMatch[1] : (exactMatch ? "o" : null);
-      if (fn) {
-        code = code.replace(new RegExp(`\\b${fn}\\((.+?),\\s*(?:1|!0|true)\\)`, "g"), `${fn}($1, 0)`);
-      }
-    }
-  }
-  return code;
 }
 
-function syncRuntimeHash(outDir, root) {
-  const resolvedDir = path.isAbsolute(outDir) ? outDir : path.resolve(root || process.cwd(), outDir);
-  if (!fs.existsSync(resolvedDir)) return;
-  const assetsDir = path.join(resolvedDir, "assets");
-  const targetDir = fs.existsSync(assetsDir) ? assetsDir : resolvedDir;
-
-  const files = fs.readdirSync(targetDir);
-  const runtimeFile = files.find((f) => f.startsWith("rolldown-runtime-") && f.endsWith(".js"));
-  if (!runtimeFile) return;
-
-  const match = runtimeFile.match(/^(rolldown-runtime)-([a-zA-Z0-9_-]+)\.js$/);
-  if (!match) return;
-
-  const [, prefix, oldHash] = match;
-  const runtimePath = path.join(targetDir, runtimeFile);
-  const content = fs.readFileSync(runtimePath, "utf8");
-  const newHash = crypto.createHash("sha256").update(content).digest("base64url").slice(0, 8);
-  if (oldHash === newHash) return;
-
-  const newFileName = `${prefix}-${newHash}.js`;
-  fs.renameSync(runtimePath, path.join(targetDir, newFileName));
-
-  function updateRefs(dir) {
-    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      const p = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        updateRefs(p);
-      } else if (entry.isFile() && /\.(js|html|json|css)$/.test(entry.name)) {
-        const text = fs.readFileSync(p, "utf8");
-        if (text.includes(runtimeFile)) {
-          fs.writeFileSync(p, text.replaceAll(runtimeFile, newFileName), "utf8");
-        }
-      }
-    }
+function fixRolldownCjsInterop(bundle) {
+  if (!bundle || typeof bundle !== "object") return;
+  for (const chunk of Object.values(bundle)) {
+    if (!chunk || chunk.type !== "chunk" || typeof chunk.code !== "string") continue;
+    chunk.code = patchRolldownCjsInteropCode(chunk.code);
   }
-  updateRefs(resolvedDir);
 }
 
 function createAntiDebugTrap(options = {}) {
@@ -433,11 +388,6 @@ function obfuscator(pluginOptions = {}) {
     },
 
     async generateBundle(outputOptions, bundle) {
-      for (const output of Object.values(bundle)) {
-        if (!output || output.type !== "chunk" || typeof output.code !== "string") continue;
-        output.code = fixRolldownCjsInterop(output.code);
-      }
-
       const resolved = resolvePackage();
       if (!resolved && !hasDebugProtection) return;
 
@@ -766,19 +716,24 @@ function magnonPlugin(options = {}) {
       }
     },
 
-    generateBundle(outputOptions, bundle) {
-      for (const output of Object.values(bundle)) {
-        if (!output || output.type !== "chunk" || typeof output.code !== "string") continue;
-        output.code = fixRolldownCjsInterop(output.code);
+    renderChunk(code, chunk) {
+      if (typeof code === "string" && code.includes("__esModule")) {
+        const patched = patchRolldownCjsInteropCode(code);
+        if (patched !== code) {
+          return { code: patched, map: null };
+        }
       }
+      return null;
+    },
+
+    generateBundle(outputOptions, bundle) {
+      fixRolldownCjsInterop(bundle);
     },
 
     closeBundle() {
       const root = resolvedConfig?.root || process.cwd();
       const outDir = path.resolve(root, resolvedConfig?.build?.outDir || "dist");
       if (!fs.existsSync(outDir)) return;
-
-      syncRuntimeHash(outDir, root);
 
       if (!compressOpts) return;
 

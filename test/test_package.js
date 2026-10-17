@@ -299,11 +299,19 @@ function testNativeCompression() {
 
 function testRolldownCjsInterop() {
   const plugin = magnon();
+  const rawCode = "u=(n,r,o)=>(o=n==null?{}:e(i(n)),l(r||!n||!n.__esModule||!a.call(n,`default`)?t(o,`default`,{value:n,enumerable:!0}):o,n))";
+  const renderRes = plugin.renderChunk(rawCode, { fileName: "assets/rolldown-runtime.js" });
+  assert(renderRes && renderRes.code);
+  assert.strictEqual(
+    renderRes.code,
+    "u=(n,r,o)=>(o=n==null?{}:e(i(n)),l((!n||!a.call(n,`default`))?t(o,`default`,{value:n,enumerable:!0}):o,n))"
+  );
+
   const bundle = {
     "assets/rolldown-runtime-xyz.js": {
       type: "chunk",
       fileName: "assets/rolldown-runtime-xyz.js",
-      code: "u=(n,r,o)=>(o=n==null?{}:e(i(n)),l(r||!n||!n.__esModule||!a.call(n,`default`)?t(o,`default`,{value:n,enumerable:!0}):o,n))"
+      code: rawCode
     },
     "assets/rolldown-runtime-abc.js": {
       type: "chunk",
