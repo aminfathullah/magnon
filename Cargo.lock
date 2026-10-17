@@ -710,7 +710,7 @@ dependencies = [
 
 [[package]]
 name = "magnon-bench"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "magnon-core",
  "memmap2",
@@ -730,7 +730,7 @@ dependencies = [
 
 [[package]]
 name = "magnon-cli"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "clap",
  "magnon-core",
@@ -740,7 +740,7 @@ dependencies = [
 
 [[package]]
 name = "magnon-core"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "brotli",
  "dashmap",
@@ -764,7 +764,7 @@ dependencies = [
 
 [[package]]
 name = "magnon-node"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "magnon-core",
  "mimalloc",

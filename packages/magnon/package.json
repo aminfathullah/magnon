@@ -1,6 +1,6 @@
 {
   "name": "magnon",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "description": "Ultra-high performance Rust-powered TypeScript/JSX compiler, batch transformer and Vite plugin",
   "main": "index.js",
   "types": "index.d.ts",
