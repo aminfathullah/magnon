@@ -263,13 +263,31 @@ function obfuscator(pluginOptions = {}) {
   }
 
   const userReserved = Array.isArray(obfOptions.reservedNames) ? obfOptions.reservedNames : [];
-  const defaultReserved = ["^[a-zA-Z]$", "^_[a-zA-Z]$", "^__.*", "default", "__esModule", "module", "exports", "require"];
+  const defaultReserved = [
+    "^[a-zA-Z]$", "^_[a-zA-Z]$", "^__.*",
+    "default", "__esModule", "module", "exports", "require",
+    "Component", "PureComponent", "forwardRef", "memo", "createContext",
+    "$$typeof", "key", "ref", "children"
+  ];
   obfOptions.reservedNames = Array.from(new Set([...defaultReserved, ...userReserved]));
 
   const userReservedStrings = Array.isArray(obfOptions.reservedStrings) ? obfOptions.reservedStrings : [];
-  const defaultReservedStrings = ["default", "__esModule", "module", "exports", "require", "prototype"];
+  const defaultReservedStrings = [
+    "default", "__esModule", "module", "exports", "require", "prototype",
+    "Component", "PureComponent", "forwardRef", "memo", "createContext",
+    "$$typeof", "key", "ref", "children"
+  ];
   obfOptions.reservedStrings = Array.from(new Set([...defaultReservedStrings, ...userReservedStrings]));
 
+  if (obfOptions.simplify) {
+    obfOptions.simplify = false;
+  }
+  if (obfOptions.unicodeEscapeSequence) {
+    obfOptions.unicodeEscapeSequence = false;
+  }
+  if (obfOptions.selfDefending) {
+    obfOptions.selfDefending = false;
+  }
   if (obfOptions.ignoreImports === undefined) {
     obfOptions.ignoreImports = true;
   }
@@ -390,11 +408,11 @@ function obfuscator(pluginOptions = {}) {
         }
 
         if (autoExcludeNodeModules) {
-          const allModulesVendor = mods.length > 0 && mods.every((m) => m.includes("/node_modules/"));
+          const hasVendor = mods.some((m) => m.includes("/node_modules/"));
           const isVendorChunk = /[\\/](vendor|node_modules)[\\/]/i.test(fileName)
             || /(?:^|[._/-])vendor(?:[._/-]|$)/i.test(fileName);
 
-          if (allModulesVendor || isVendorChunk) {
+          if (hasVendor || isVendorChunk) {
             continue;
           }
         }
