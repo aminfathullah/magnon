@@ -93,7 +93,17 @@ function codeSplitting(options = {}) {
   }
 
   const customGroups = options.groups || [];
-  const chunks = options.chunks || (options.vendors ? options.vendors : {});
+  const defaultVendors = framework ? {
+    "chart-vendor": {
+      test: ["echarts", "zrender", "echarts-for-react", "apexcharts", "react-apexcharts", "chart.js", "react-chartjs-2", "recharts", "d3", "d3-geo"],
+      priority: 25
+    },
+    "slider-vendor": {
+      test: ["slick-carousel", "react-slick", "swiper"],
+      priority: 25
+    }
+  } : {};
+  const chunks = Object.assign({}, defaultVendors, options.chunks || (options.vendors ? options.vendors : {}));
   if (!options.chunks && !options.vendors && !options.groups && !options.framework) {
     Object.entries(options).forEach(([k, v]) => {
       if (k !== "framework" && k !== "groups" && k !== "chunks" && k !== "vendors" && k !== "priority" && k !== "frameworkChunkName") {
@@ -303,6 +313,12 @@ function obfuscator(pluginOptions = {}) {
   if (!obfOptions.target) {
     obfOptions.target = "browser";
   }
+  if (obfOptions.stringArrayWrappersCount === undefined) {
+    obfOptions.stringArrayWrappersCount = 1;
+  }
+  if (obfOptions.stringArrayCallsTransform === undefined) {
+    obfOptions.stringArrayCallsTransform = false;
+  }
 
   let workers = [];
   const readyPromises = [];
@@ -366,8 +382,12 @@ function obfuscator(pluginOptions = {}) {
         return;
       }
 
-      if (workerCount > 1) {
-        for (let i = 0; i < workerCount; i++) {
+      const prewarmCount = mergedCriticalFragments.length > 0
+        ? Math.min(workerCount, mergedCriticalFragments.length)
+        : Math.min(workerCount, 4);
+
+      if (prewarmCount > 1) {
+        for (let i = 0; i < prewarmCount; i++) {
           try {
             const w = new Worker(workerScript, { eval: true, workerData: { pkgPath: resolved } });
             readyPromises.push(new Promise((res) => {
@@ -391,6 +411,17 @@ function obfuscator(pluginOptions = {}) {
       const resolved = resolvePackage();
       if (!resolved && !hasDebugProtection) return;
 
+      if (hasDebugProtection) {
+        const trap = createAntiDebugTrap(debugInterval);
+        for (const output of Object.values(bundle)) {
+          if (output && output.type === "chunk" && output.isEntry && typeof output.code === "string") {
+            if (!output.code.includes("debu\"+\"gger") && !output.code.includes("debugger")) {
+              output.code = trap + output.code;
+            }
+          }
+        }
+      }
+
       const tasks = [];
       const normalize = (id) => id.split(path.sep).join("/");
 
@@ -405,52 +436,38 @@ function obfuscator(pluginOptions = {}) {
         );
 
         if (exclude && (matchesPattern(fileName, exclude) || mods.some((m) => matchesPattern(m, exclude)))) {
-          if (hasDebugProtection && output.isEntry) {
-            output.code = createAntiDebugTrap(debugInterval) + output.code;
+          continue;
+        }
+
+        const isVendorChunk = /[\\/](vendor|node_modules)[\\/]/i.test(fileName)
+          || /(?:^|[._/-])vendor(?:[._/-]|$)/i.test(fileName);
+        const allModulesVendor = mods.length > 0 && mods.every((m) => m.includes("/node_modules/"));
+
+        if (isCritical) {
+          if (!isVendorChunk && !allModulesVendor) {
+            tasks.push({ fileName, output });
           }
           continue;
         }
 
-        if (autoExcludeNodeModules) {
-          const hasVendor = mods.some((m) => m.includes("/node_modules/"));
-          const isVendorChunk = /[\\/](vendor|node_modules)[\\/]/i.test(fileName)
-            || /(?:^|[._/-])vendor(?:[._/-]|$)/i.test(fileName);
+        if (mergedCriticalFragments.length > 0 && !include) {
+          continue;
+        }
 
-          if (hasVendor || isVendorChunk) {
-            continue;
-          }
+        if (autoExcludeNodeModules && (isVendorChunk || allModulesVendor)) {
+          continue;
         }
 
         if (!obfuscateEntry && output.isEntry) {
-          if (hasDebugProtection) {
-            output.code = createAntiDebugTrap(debugInterval) + output.code;
-          }
           continue;
         }
 
         if (output.code.length < minChunkSize) {
-          if (hasDebugProtection && output.isEntry) {
-            output.code = createAntiDebugTrap(debugInterval) + output.code;
-          }
           continue;
         }
 
         if (include && !matchesPattern(fileName, include) && !mods.some((m) => matchesPattern(m, include))) {
-          if (hasDebugProtection && output.isEntry) {
-            output.code = createAntiDebugTrap(debugInterval) + output.code;
-          }
           continue;
-        }
-
-        if (mergedCriticalFragments.length > 0 && !isCritical && !include) {
-          if (hasDebugProtection && output.isEntry) {
-            output.code = createAntiDebugTrap(debugInterval) + output.code;
-          }
-          continue;
-        }
-
-        if (hasDebugProtection && output.isEntry) {
-          output.code = createAntiDebugTrap(debugInterval) + output.code;
         }
 
         tasks.push({ fileName, output });
@@ -462,8 +479,10 @@ function obfuscator(pluginOptions = {}) {
       const taskMap = new Map();
       tasks.forEach((t) => taskMap.set(t.fileName, t));
 
-      if (workers.length > 1) {
-        await Promise.all(readyPromises);
+      const activeWorkers = workers.slice(0, Math.min(workers.length, tasks.length));
+
+      if (activeWorkers.length > 1) {
+        await Promise.all(readyPromises.slice(0, activeWorkers.length));
 
         let taskIdx = 0;
         let completed = 0;
@@ -490,7 +509,7 @@ function obfuscator(pluginOptions = {}) {
             });
           };
 
-          workers.forEach((w) => {
+          activeWorkers.forEach((w) => {
             const onMsg = (msg) => {
               if (!msg || msg.type === "ready") return;
               const target = taskMap.get(msg.id);
@@ -525,11 +544,13 @@ function obfuscator(pluginOptions = {}) {
 
         const dt = performance.now() - t0;
         if (verbose) {
-          console.log(`\x1b[32m✓\x1b[0m [magnon] Parallel obfuscated ${successful}/${tasks.length} chunks across ${workers.length} workers in ${dt.toFixed(1)}ms`);
+          console.log(`\x1b[32m✓\x1b[0m [magnon] Parallel obfuscated ${successful}/${tasks.length} chunks across ${activeWorkers.length} workers in ${dt.toFixed(1)}ms`);
         }
-      } else {
-        const JavaScriptObfuscator = require(resolved);
-        let successful = 0;
+        return;
+      }
+
+      const JavaScriptObfuscator = require(resolved);
+      let successful = 0;
 
         for (const task of tasks) {
           try {
@@ -556,7 +577,6 @@ function obfuscator(pluginOptions = {}) {
         if (verbose) {
           console.log(`\x1b[32m✓\x1b[0m [magnon] Obfuscated ${successful}/${tasks.length} chunks in ${dt.toFixed(1)}ms`);
         }
-      }
     },
 
     closeBundle() {
@@ -564,6 +584,7 @@ function obfuscator(pluginOptions = {}) {
         try { w.terminate(); } catch (_) {}
       });
       workers = [];
+      readyPromises.length = 0;
     }
   };
 }
