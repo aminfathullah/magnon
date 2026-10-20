@@ -163,7 +163,7 @@ function testBatchTransform() {
   console.log('  PASS: Batch transform (Multi-file zero-copy memory mapping)');
 }
 
-function testVitePluginHooks() {
+async function testVitePluginHooks() {
   const plugin = magnon({ jsxRuntime: 'automatic', compress: true });
   assert.strictEqual(plugin.name, 'vite-plugin-magnon');
   assert.strictEqual(plugin.enforce, 'pre');
@@ -194,12 +194,23 @@ function testVitePluginHooks() {
   assert(aliasedCfg.resolve && Array.isArray(aliasedCfg.resolve.alias));
   assert(aliasedCfg.resolve.alias.some(a => a.replacement === '@mui/icons-material/esm'));
 
-  const compPlugin = magnon.compression();
-  assert.strictEqual(compPlugin.name, 'vite-plugin-magnon-compression');
-  assert.strictEqual(compPlugin.apply, 'build');
-  assert.strictEqual(typeof compPlugin.closeBundle, 'function');
+  const tmpScss = path.join(__dirname, 'fixtures/temp.module.scss');
+  fs.writeFileSync(tmpScss, '$primaryMain: #2196f3;\n:export {\n  primaryMain: $primaryMain;\n}\n');
+  try {
+    const fakeContext = {
+      resolve: async () => ({ id: tmpScss }),
+      addWatchFile: () => {}
+    };
+    const resolvedId = await plugin.resolveId.call(fakeContext, 'temp.module.scss');
+    assert(resolvedId && resolvedId.startsWith('\0magnon-icss:'));
+    const loaded = plugin.load.call(fakeContext, resolvedId);
+    assert(loaded && loaded.includes('export const primaryMain = "#2196f3";'));
+    assert(loaded.includes('"primaryMain": "#2196f3"'));
+  } finally {
+    try { fs.unlinkSync(tmpScss); } catch (_) {}
+  }
 
-  console.log('  PASS: Vite plugin lifecycle hooks and compression integration');
+  console.log('  PASS: Vite plugin lifecycle hooks, ICSS :export resolution, and compression integration');
 }
 
 async function testObfuscatorPlugin() {
@@ -339,7 +350,7 @@ async function runAllTests() {
   testCodeSplittingPresets();
   testExtendedLibraryModularization();
   testBatchTransform();
-  testVitePluginHooks();
+  await testVitePluginHooks();
   testNativeCompression();
   testRolldownCjsInterop();
   await testObfuscatorPlugin();

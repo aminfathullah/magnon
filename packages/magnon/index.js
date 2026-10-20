@@ -707,7 +707,6 @@ function magnonPlugin(options = {}) {
         esbuild: false,
         oxc: false,
         css: {
-          transformer: config?.css?.transformer ?? "lightningcss",
           preprocessorMaxWorkers: config?.css?.preprocessorMaxWorkers ?? Math.min(os.cpus()?.length || 4, 8),
           preprocessorOptions: {
             scss: {
@@ -835,6 +834,96 @@ function magnonPlugin(options = {}) {
     async buildStart() {
       if (prewarmPromise) {
         await prewarmPromise;
+      }
+    },
+
+    async resolveId(source, importer) {
+      if (!/\.module\.(scss|sass|less|css)(\?.*)?$/i.test(source)) return null;
+      const cleanSource = source.split("?")[0];
+      const resolved = await this.resolve(cleanSource, importer, { skipSelf: true });
+      if (!resolved || resolved.external) return null;
+      try {
+        if (fs.existsSync(resolved.id)) {
+          const raw = fs.readFileSync(resolved.id, "utf8");
+          if (raw.includes(":export")) {
+            return "\0magnon-icss:" + resolved.id + ".js";
+          }
+        }
+      } catch (_) {}
+      return null;
+    },
+
+    load(id) {
+      if (id.startsWith("\0magnon-icss:")) {
+        const realPath = id.slice("\0magnon-icss:".length).replace(/\.js$/, "");
+        this.addWatchFile(realPath);
+        const raw = fs.readFileSync(realPath, "utf8");
+        let css = raw;
+
+        const scssVars = new Map();
+        for (const line of raw.split("\n")) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith("$")) {
+            const idx = trimmed.indexOf(":");
+            if (idx !== -1) {
+              const name = trimmed.slice(1, idx).trim();
+              let val = trimmed.slice(idx + 1).replace(/;.*$/, "").replace(/\/\/.*$/, "").trim();
+              while (val.startsWith("$") && scssVars.has(val.slice(1))) {
+                val = scssVars.get(val.slice(1));
+              }
+              scssVars.set(name, val);
+            }
+          }
+        }
+
+        try {
+          const rootDir = resolvedConfig?.root || process.cwd();
+          const req = require("module").createRequire(realPath);
+          const sass = req("sass") || require("module").createRequire(rootDir)("sass");
+          const compileString = sass.compileString || sass.default?.compileString;
+          if (compileString) {
+            css = compileString(raw, {
+              loadPaths: [path.dirname(realPath), path.join(rootDir, "src"), path.join(rootDir, "node_modules")]
+            }).css;
+          }
+        } catch (_) {}
+
+        const exportMatch = css.match(/:export\s*\{([\s\S]*?)\}/);
+        const exportsObj = {};
+        if (exportMatch) {
+          const body = exportMatch[1];
+          const declRegex = /([a-zA-Z0-9_-]+)\s*:\s*([^;]+);/g;
+          let m;
+          while ((m = declRegex.exec(body)) !== null) {
+            const k = m[1].trim();
+            let v = m[2].trim();
+            if (v.startsWith("$") && scssVars.has(v.slice(1))) {
+              v = scssVars.get(v.slice(1));
+            }
+            exportsObj[k] = v;
+          }
+        }
+
+        const lines = [];
+        const nonExportCss = css.replace(/:export\s*\{[\s\S]*?\}/g, "").trim();
+        if (nonExportCss.length > 0) {
+          lines.push(`import ${JSON.stringify(realPath + "?magnon-css-direct")};`);
+        }
+
+        for (const [k, v] of Object.entries(exportsObj)) {
+          if (/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(k)) {
+            lines.push(`export const ${k} = ${JSON.stringify(v)};`);
+          }
+        }
+        lines.push(`export default ${JSON.stringify(exportsObj, null, 2)};`);
+        return lines.join("\n");
+      }
+
+      if (id.includes("?magnon-css-direct")) {
+        const realPath = id.split("?")[0];
+        this.addWatchFile(realPath);
+        const raw = fs.readFileSync(realPath, "utf8");
+        return raw.replace(/:export\s*\{[\s\S]*?\}/g, "");
       }
     },
 
