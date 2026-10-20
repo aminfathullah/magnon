@@ -167,22 +167,26 @@ async function testVitePluginHooks() {
   const plugin = magnon({ jsxRuntime: 'automatic', compress: true });
   assert.strictEqual(plugin.name, 'vite-plugin-magnon');
   assert.strictEqual(plugin.enforce, 'pre');
-  assert.strictEqual(typeof plugin.transform, 'function');
+  assert(typeof plugin.transform === 'function' || typeof plugin.transform === 'object');
   assert.strictEqual(typeof plugin.buildStart, 'function');
   assert.strictEqual(typeof plugin.closeBundle, 'function');
+
+  const transformHandler = typeof plugin.transform === 'function' ? plugin.transform : plugin.transform.handler;
+  const resolveIdHandler = typeof plugin.resolveId === 'function' ? plugin.resolveId : plugin.resolveId.handler;
+  const loadHandler = typeof plugin.load === 'function' ? plugin.load : plugin.load.handler;
 
   const sampleId = '/virtual/Component.tsx';
   const sampleCode = `
     import { IconUsers } from '@tabler/icons-react';
     export const Component = () => <div>{IconUsers}</div>;
   `;
-  const res = plugin.transform(sampleCode, sampleId);
+  const res = transformHandler(sampleCode, sampleId);
   assert(res && res.code);
   assert(res.code.includes('react/jsx-runtime'));
   assert(res.code.includes('@tabler/icons-react/dist/esm/icons/IconUsers.mjs'));
 
   const ignoredId = '/virtual/node_modules/dep/index.js';
-  const ignoredRes = plugin.transform('const a = 1;', ignoredId);
+  const ignoredRes = transformHandler('const a = 1;', ignoredId);
   assert.strictEqual(ignoredRes, null);
 
   const cleanPlugin = magnon({});
@@ -201,9 +205,9 @@ async function testVitePluginHooks() {
       resolve: async () => ({ id: tmpScss }),
       addWatchFile: () => {}
     };
-    const resolvedId = await plugin.resolveId.call(fakeContext, 'temp.module.scss');
+    const resolvedId = await resolveIdHandler.call(fakeContext, 'temp.module.scss');
     assert(resolvedId && resolvedId.startsWith('\0magnon-icss:'));
-    const loaded = plugin.load.call(fakeContext, resolvedId);
+    const loaded = loadHandler.call(fakeContext, resolvedId);
     assert(loaded && loaded.includes('export const primaryMain = "#2196f3";'));
     assert(loaded.includes('"primaryMain": "#2196f3"'));
   } finally {
@@ -311,7 +315,8 @@ function testNativeCompression() {
 function testRolldownCjsInterop() {
   const plugin = magnon();
   const rawCode = "u=(n,r,o)=>(o=n==null?{}:e(i(n)),l(r||!n||!n.__esModule||!a.call(n,`default`)?t(o,`default`,{value:n,enumerable:!0}):o,n))";
-  const renderRes = plugin.renderChunk(rawCode, { fileName: "assets/rolldown-runtime.js" });
+  const renderChunkHandler = typeof plugin.renderChunk === 'function' ? plugin.renderChunk : plugin.renderChunk.handler;
+  const renderRes = renderChunkHandler(rawCode, { fileName: "assets/rolldown-runtime.js" });
   assert(renderRes && renderRes.code);
   assert.strictEqual(
     renderRes.code,
