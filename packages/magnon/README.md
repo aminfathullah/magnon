@@ -132,10 +132,10 @@ Evaluated against an 853-file production corpus (Three.js modules + React compon
 
 | Compiler / Toolchain | Cores | Wall Time | Throughput | Bandwidth | Speedup vs Baseline |
 | :--- | :---: | :---: | :---: | :---: | :---: |
-| **Magnon (Parallel Batch Engine)** | **32c** | **7.17 ms** | **118,921.2 files/s** | **644.76 MB/s** | **14.34x vs SWC** (3.89x vs Rspack) |
-| **Rspack (`experiments.swc.transform`)** | 32c | 27.91 ms | 30,529.2 files/s | 165.72 MB/s | 3.69x vs SWC |
-| **SWC (`swc.transform` Promise.all)** | 32c | 102.86 ms | 8,283.2 files/s | 44.96 MB/s | 1.00x (Baseline) |
-| **esbuild (`esbuild.transform` Promise.all)** | 32c | 177.25 ms | 4,806.8 files/s | 26.09 MB/s | 0.58x vs SWC |
+| **Magnon (Parallel Batch Engine)** | **32c** | **7.59 ms** | **112,424.6 files/s** | **609.54 MB/s** | **13.43x vs SWC** (3.57x vs Rspack) |
+| **Rspack (`experiments.swc.transform`)** | 32c | 27.07 ms | 31,474.9 files/s | 170.85 MB/s | 3.76x vs SWC |
+| **SWC (`swc.transform` Promise.all)** | 32c | 101.88 ms | 8,363.0 files/s | 45.40 MB/s | 1.00x (Baseline) |
+| **esbuild (`esbuild.transform` Promise.all)** | 32c | 179.82 ms | 4,738.2 files/s | 25.72 MB/s | 0.57x vs SWC |
 
 ### 2. Native Rust Compiler Performance (Zero FFI Overhead)
 
@@ -143,10 +143,10 @@ Evaluated natively in Rust against standard OXC pipeline on 853 files (4.62 MB):
 
 | Engine / Architecture | Cores | Wall Time | Throughput | Bandwidth | Speedup |
 | :--- | :---: | :---: | :---: | :---: | :---: |
-| **Magnon (ThreadLocalPool + Bump Arena)** | **32c** | **3.15 ms** | **270,610.1 files/s** | **1,467.19 MB/s** | **20.02x faster** |
-| **Standard OXC Pipeline (Parallel)** | 32c | 3.56 ms | 239,657.0 files/s | 1,299.37 MB/s | 17.73x faster |
-| **Magnon (Single Core Arena)** | 1c | 58.54 ms | 14,570.3 files/s | 79.00 MB/s | 1.08x faster |
-| **Standard OXC Pipeline (Single Core)** | 1c | 63.10 ms | 13,518.7 files/s | 73.30 MB/s | 1.00x (Baseline) |
+| **Magnon (ThreadLocalPool + Bump Arena)** | **32c** | **2.95 ms** | **288,674.2 files/s** | **1,565.13 MB/s** | **21.01x faster** (1.18x vs OXC) |
+| **Standard OXC Pipeline (Parallel)** | 32c | 3.48 ms | 245,374.3 files/s | 1,330.37 MB/s | 17.86x faster |
+| **Magnon (Single Core Arena)** | 1c | 58.83 ms | 14,499.3 files/s | 78.61 MB/s | 1.06x faster |
+| **Standard OXC Pipeline (Single Core)** | 1c | 62.07 ms | 13,742.0 files/s | 74.51 MB/s | 1.00x (Baseline) |
 
 ### 3. Rolldown / Rollup CJS Interop Normalization & CDN Cache Integrity
 
@@ -154,23 +154,25 @@ Evaluated on a 200-chunk production bundle (20 MB minified JavaScript):
 
 | Interop Strategy | Hook Phase | 200-Chunk Cost | Latency / Chunk | CDN Cache Determinism | Safe for CDNs |
 | :--- | :---: | :---: | :---: | :---: | :---: |
-| **Magnon Pre-Hash Normalizer** | **`renderChunk`** | **0.29 ms** | **1.45 µs** | **Content-Hashed** | **YES (Immutable safe)** |
-| **Post-Build Disk Scan & Rename** | `closeBundle` | 53.42 ms | 267.09 µs | Hash Desync / Conflict | NO (Stale CDN hits) |
+| **Magnon Pre-Hash Normalizer** | **`renderChunk`** | **0.35 ms** | **1.73 µs** | **Content-Hashed** | **YES (Immutable safe)** |
+| **Post-Build Disk Scan & Rename** | `closeBundle` | 53.90 ms | 269.50 µs | Hash Desync / Conflict | NO (Stale CDN hits) |
 
 ### 4. Parallel Asset Compression (Dual Brotli + Gzip)
 
 | Compression Engine | Algorithm | Cores | Wall Time | Throughput | Speedup vs Node.js |
 | :--- | :--- | :---: | :---: | :---: | :---: |
-| **Magnon Native (Rayon)** | **Brotli + Gzip Dual** | **32c** | **0.28 ms** | **362,250.6 files/s** | **45.27x faster** |
-| **Node.js zlib (`Promise.all`)** | Brotli + Gzip Dual | Node pool | 12.50 ms | 8,001.3 files/s | 1.00x (Baseline) |
+| **Magnon Native (Rayon)** | **Brotli + Gzip Dual** | **32c** | **0.26 ms** | **382,871.8 files/s** | **47.50x faster** |
+| **Node.js zlib (`Promise.all`)** | Brotli + Gzip Dual | Node pool | 12.41 ms | 8,060.0 files/s | 1.00x (Baseline) |
 
 ### 5. Enterprise Production Build Benchmark
 
-Tested on a production enterprise React application (222 assets, 20 MB bundle, full tree-shaking, vendor chunking, critical obfuscation, dual Brotli/Gzip compression):
+Tested on a production enterprise React application (187 assets, 20.21 MB bundle, full tree-shaking, vendor chunking, critical obfuscation, dual Brotli/Gzip compression):
 
-| Metric | Vite 6 + Rollup (Baseline) | Vite 8 + Rolldown (Unoptimized) | Vite 8 + Rolldown + Magnon 0.1.17 |
+| Metric | Vite 6 + Rollup (Baseline) | Vite 8 + Rolldown (Unoptimized) | Vite 8 + Rolldown + Magnon 0.1.19 |
 | :--- | :---: | :---: | :---: |
-| **Build Wall Time** | 102.0s (1m 42s) | 17.7s | **4.15s (-96% vs baseline)** |
+| **Build Wall Time** | 102.0s (1m 42s) | 17.7s | **2.92s - 2.99s (< 3.0s, -97% vs baseline)** |
+| **Dual Compression (187 assets)** | ~1,200 ms (Node zlib) | ~1,200 ms (Node zlib) | **58 - 74 ms (Native Rayon dual)** |
+| **Obfuscation Latency** | ~2,400 ms (single thread) | ~2,400 ms (single thread) | **~190 ms (pre-warmed worker pool)** |
 | **Rollup Modules Parsed** | 33,427 modules | 33,427 modules | **17,040 modules (-49%)** |
 | **V8 Heap Memory Pressure** | >4,000 MB (GC bound) | ~3,200 MB | **<1,800 MB (-55%)** |
 | **CJS Runtime Safety** | Prone to Error #130 | Prone to Error #130 | **100% Robust (Zero Error #130)** |
