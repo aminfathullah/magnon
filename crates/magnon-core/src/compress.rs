@@ -98,23 +98,20 @@ pub fn compress_brotli(data: &[u8], quality: u32) -> Result<Vec<u8>, MagnonError
 }
 
 pub fn compress_single_file(path: &Path, options: &CompressOptions) -> FileCompressResult {
+    let original_size = match fs::metadata(path) {
+        Ok(m) => m.len() as usize,
+        Err(_) => 0,
+    };
+    compress_single_file_with_size(path, original_size, options)
+}
+
+pub fn compress_single_file_with_size(
+    path: &Path,
+    original_size: usize,
+    options: &CompressOptions,
+) -> FileCompressResult {
     let path_str = path.to_string_lossy().to_string();
 
-    let data = match fs::read(path) {
-        Ok(d) => d,
-        Err(e) => {
-            return FileCompressResult {
-                path: path_str,
-                original_size: 0,
-                gzip_size: None,
-                brotli_size: None,
-                success: false,
-                error: Some(e.to_string()),
-            };
-        }
-    };
-
-    let original_size = data.len();
     if original_size < options.threshold {
         return FileCompressResult {
             path: path_str,
@@ -126,67 +123,64 @@ pub fn compress_single_file(path: &Path, options: &CompressOptions) -> FileCompr
         };
     }
 
-    let mut gzip_size = None;
-    if options.gzip {
-        match compress_gzip(&data, options.gzip_level) {
-            Ok(gz) => {
-                let gz_path = format!("{}.gz", path_str);
-                if let Err(e) = fs::write(&gz_path, &gz) {
-                    return FileCompressResult {
-                        path: path_str,
-                        original_size,
-                        gzip_size: None,
-                        brotli_size: None,
-                        success: false,
-                        error: Some(format!("Failed writing {}: {}", gz_path, e)),
-                    };
-                }
-                gzip_size = Some(gz.len());
-            }
-            Err(e) => {
-                return FileCompressResult {
-                    path: path_str,
-                    original_size,
-                    gzip_size: None,
-                    brotli_size: None,
-                    success: false,
-                    error: Some(e.to_string()),
-                };
-            }
+    let data = match fs::read(path) {
+        Ok(d) => d,
+        Err(e) => {
+            return FileCompressResult {
+                path: path_str,
+                original_size,
+                gzip_size: None,
+                brotli_size: None,
+                success: false,
+                error: Some(e.to_string()),
+            };
         }
-    }
+    };
 
-    let mut brotli_size = None;
-    if options.brotli {
-        match compress_brotli(&data, options.brotli_quality) {
-            Ok(br) => {
-                let br_path = format!("{}.br", path_str);
-                if let Err(e) = fs::write(&br_path, &br) {
-                    return FileCompressResult {
-                        path: path_str,
-                        original_size,
-                        gzip_size,
-                        brotli_size: None,
-                        success: false,
-                        error: Some(format!("Failed writing {}: {}", br_path, e)),
-                    };
-                }
-                brotli_size = Some(br.len());
-            }
-            Err(e) => {
-                return FileCompressResult {
-                    path: path_str,
-                    original_size,
-                    gzip_size,
-                    brotli_size: None,
-                    success: false,
-                    error: Some(e.to_string()),
-                };
-            }
+    let gz_fn = || -> Result<Option<usize>, String> {
+        if !options.gzip {
+            return Ok(None);
         }
-    }
+        let gz = compress_gzip(&data, options.gzip_level)
+            .map_err(|e| e.to_string())?;
+        let gz_path = format!("{}.gz", path_str);
+        fs::write(&gz_path, &gz)
+            .map_err(|e| format!("Failed writing {}: {}", gz_path, e))?;
+        Ok(Some(gz.len()))
+    };
 
-    if options.delete_original {
+    let br_fn = || -> Result<Option<usize>, String> {
+        if !options.brotli {
+            return Ok(None);
+        }
+        let br = compress_brotli(&data, options.brotli_quality)
+            .map_err(|e| e.to_string())?;
+        let br_path = format!("{}.br", path_str);
+        fs::write(&br_path, &br)
+            .map_err(|e| format!("Failed writing {}: {}", br_path, e))?;
+        Ok(Some(br.len()))
+    };
+
+    let (gz_res, br_res) = if options.gzip && options.brotli {
+        rayon::join(gz_fn, br_fn)
+    } else {
+        (gz_fn(), br_fn())
+    };
+
+    let (gzip_size, gz_err) = match gz_res {
+        Ok(sz) => (sz, None),
+        Err(err) => (None, Some(err)),
+    };
+
+    let (brotli_size, br_err) = match br_res {
+        Ok(sz) => (sz, None),
+        Err(err) => (None, Some(err)),
+    };
+
+    let error = gz_err.or(br_err);
+    let success = error.is_none();
+
+    if success && options.delete_original {
         let _ = fs::remove_file(path);
     }
 
@@ -195,12 +189,12 @@ pub fn compress_single_file(path: &Path, options: &CompressOptions) -> FileCompr
         original_size,
         gzip_size,
         brotli_size,
-        success: true,
-        error: None,
+        success,
+        error,
     }
 }
 
-pub fn collect_compressible_files(dir: &Path, options: &CompressOptions) -> Vec<PathBuf> {
+pub fn collect_compressible_files(dir: &Path, options: &CompressOptions) -> Vec<(PathBuf, u64)> {
     let mut files = Vec::new();
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
@@ -217,7 +211,8 @@ pub fn collect_compressible_files(dir: &Path, options: &CompressOptions) -> Vec<
                             .iter()
                             .any(|e| e.eq_ignore_ascii_case(&ext_lower))
                     {
-                        files.push(path);
+                        let len = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                        files.push((path, len));
                     }
                 }
             }
@@ -229,7 +224,53 @@ pub fn collect_compressible_files(dir: &Path, options: &CompressOptions) -> Vec<
 pub fn compress_directory(dir: &Path, options: &CompressOptions) -> BatchCompressResult {
     let start = Instant::now();
     let files = collect_compressible_files(dir, options);
-    compress_files_parallel(&files, options, start)
+
+    let (mut to_compress, skipped): (Vec<_>, Vec<_>) = files
+        .into_iter()
+        .partition(|(_, len)| *len >= options.threshold as u64);
+
+    to_compress.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+
+    let mut results: Vec<FileCompressResult> = to_compress
+        .par_iter()
+        .map(|(path, len)| compress_single_file_with_size(path, *len as usize, options))
+        .collect();
+
+    for (path, len) in skipped {
+        results.push(FileCompressResult {
+            path: path.to_string_lossy().to_string(),
+            original_size: len as usize,
+            gzip_size: None,
+            brotli_size: None,
+            success: true,
+            error: None,
+        });
+    }
+
+    let mut total_original_bytes = 0u64;
+    let mut total_gzip_bytes = 0u64;
+    let mut total_brotli_bytes = 0u64;
+
+    for r in &results {
+        if r.success {
+            total_original_bytes += r.original_size as u64;
+            if let Some(sz) = r.gzip_size {
+                total_gzip_bytes += sz as u64;
+            }
+            if let Some(sz) = r.brotli_size {
+                total_brotli_bytes += sz as u64;
+            }
+        }
+    }
+
+    BatchCompressResult {
+        total_files: results.len(),
+        files: results,
+        total_original_bytes,
+        total_gzip_bytes,
+        total_brotli_bytes,
+        duration_ms: start.elapsed().as_secs_f64() * 1000.0,
+    }
 }
 
 pub fn compress_files_parallel(

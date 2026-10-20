@@ -46,9 +46,9 @@ function compression(options = {}) {
       const res = compressDirectory(outDir, {
         gzip: options.gzip !== false,
         brotli: options.brotli !== false,
-        gzipLevel: options.gzipLevel ?? 6,
-        brotliQuality: options.brotliQuality ?? 5,
-        threshold: options.threshold ?? 1024,
+        gzipLevel: options.gzipLevel ? Math.min(options.gzipLevel, 5) : 5,
+        brotliQuality: options.brotliQuality ? Math.min(options.brotliQuality, 3) : 3,
+        threshold: Math.max(options.threshold ?? 1024, 1536),
         extensions: options.extensions,
         deleteOriginal: options.deleteOriginal ?? false,
       });
@@ -94,6 +94,22 @@ function codeSplitting(options = {}) {
 
   const customGroups = options.groups || [];
   const defaultVendors = framework ? {
+    "data-vendor": {
+      test: /\.json$/i,
+      priority: 25
+    },
+    "pdf-vendor": {
+      test: ["@react-pdf", "pdfkit", "fontkit"],
+      priority: 25
+    },
+    "presentation-vendor": {
+      test: ["spectacle"],
+      priority: 25
+    },
+    "icons-vendor": {
+      test: ["@tabler/icons-react", "react-icons", "lucide-react", "@lucide/react"],
+      priority: 32
+    },
     "chart-vendor": {
       test: ["echarts", "zrender", "echarts-for-react", "apexcharts", "react-apexcharts", "chart.js", "react-chartjs-2", "recharts", "d3", "d3-geo"],
       priority: 25
@@ -216,7 +232,9 @@ function matchesPattern(str, pattern) {
 }
 
 function patchRolldownCjsInteropCode(code) {
-  if (typeof code !== "string" || !code.includes("__esModule")) return code;
+  if (typeof code !== "string" || code.length < 50) return code;
+  if (code.indexOf(".__esModule") === -1 || code.indexOf("__esModule|") === -1) return code;
+  if (!code.includes("default") || !code.includes(".call(")) return code;
   return code.replace(
     /(?:[a-zA-Z0-9_$]+\s*\|\|\s*)?!([a-zA-Z0-9_$]+)\s*\|\|\s*!\1\.__esModule\s*\|\|\s*!([a-zA-Z0-9_$]+)\.call\(\1,\s*(["'`])default\3\)/g,
     "(!$1||!$2.call($1,$3default$3))"
@@ -226,7 +244,9 @@ function patchRolldownCjsInteropCode(code) {
 function fixRolldownCjsInterop(bundle) {
   if (!bundle || typeof bundle !== "object") return;
   for (const chunk of Object.values(bundle)) {
-    if (!chunk || chunk.type !== "chunk" || typeof chunk.code !== "string") continue;
+    if (!chunk || chunk.type !== "chunk" || (!chunk.isEntry && (!chunk.fileName || !chunk.fileName.includes("runtime")))) continue;
+    if (typeof chunk.code !== "string" || chunk.code.length < 50) continue;
+    if (!chunk.code.includes(".__esModule") || !chunk.code.includes(".call(")) continue;
     chunk.code = patchRolldownCjsInteropCode(chunk.code);
   }
 }
@@ -273,39 +293,31 @@ function obfuscator(pluginOptions = {}) {
   const rawInterval = options.debugProtectionInterval ?? debugProtectionInterval ?? obfOptions.debugProtectionInterval;
   const debugInterval = (typeof rawInterval === "number" && rawInterval > 0) ? Math.floor(rawInterval) : 2000;
 
-  if (hasDebugProtection) {
-    obfOptions.debugProtection = true;
-    obfOptions.debugProtectionInterval = debugInterval;
-  } else {
-    delete obfOptions.debugProtection;
-    delete obfOptions.debugProtectionInterval;
-  }
+  delete obfOptions.debugProtection;
+  delete obfOptions.debugProtectionInterval;
 
   const userReserved = Array.isArray(obfOptions.reservedNames) ? obfOptions.reservedNames : [];
-  const defaultReserved = [
-    "^[a-zA-Z]$", "^_[a-zA-Z]$", "^__.*",
-    "default", "__esModule", "module", "exports", "require",
-    "Component", "PureComponent", "forwardRef", "memo", "createContext",
-    "$$typeof", "key", "ref", "children"
-  ];
+  const defaultReserved = ["default", "__esModule"];
   obfOptions.reservedNames = Array.from(new Set([...defaultReserved, ...userReserved]));
 
-  const userReservedStrings = Array.isArray(obfOptions.reservedStrings) ? obfOptions.reservedStrings : [];
-  const defaultReservedStrings = [
-    "default", "__esModule", "module", "exports", "require", "prototype",
-    "Component", "PureComponent", "forwardRef", "memo", "createContext",
-    "$$typeof", "key", "ref", "children"
-  ];
-  obfOptions.reservedStrings = Array.from(new Set([...defaultReservedStrings, ...userReservedStrings]));
+  if (obfOptions.sourceMap === undefined) {
+    obfOptions.sourceMap = false;
+  }
 
-  if (obfOptions.simplify) {
+  const userReservedStrings = Array.isArray(obfOptions.reservedStrings) ? obfOptions.reservedStrings : [];
+  obfOptions.reservedStrings = userReservedStrings;
+
+  if (obfOptions.simplify === undefined) {
     obfOptions.simplify = false;
   }
-  if (obfOptions.unicodeEscapeSequence) {
+  if (obfOptions.unicodeEscapeSequence === undefined) {
     obfOptions.unicodeEscapeSequence = false;
   }
-  if (obfOptions.selfDefending) {
+  if (obfOptions.selfDefending === undefined) {
     obfOptions.selfDefending = false;
+  }
+  if (obfOptions.numbersToExpressions === undefined) {
+    obfOptions.numbersToExpressions = false;
   }
   if (obfOptions.ignoreImports === undefined) {
     obfOptions.ignoreImports = true;
@@ -316,8 +328,56 @@ function obfuscator(pluginOptions = {}) {
   if (obfOptions.stringArrayWrappersCount === undefined) {
     obfOptions.stringArrayWrappersCount = 1;
   }
+  if (obfOptions.stringArrayWrappersChainedCalls === undefined) {
+    obfOptions.stringArrayWrappersChainedCalls = false;
+  }
   if (obfOptions.stringArrayCallsTransform === undefined) {
     obfOptions.stringArrayCallsTransform = false;
+  }
+  if (obfOptions.stringArrayCallsTransformThreshold === undefined) {
+    obfOptions.stringArrayCallsTransformThreshold = 0;
+  }
+  if (obfOptions.splitStrings === undefined) {
+    obfOptions.splitStrings = false;
+  }
+  if (obfOptions.transformObjectKeys === undefined) {
+    obfOptions.transformObjectKeys = false;
+  }
+  if (!obfOptions.identifierNamesGenerator) {
+    obfOptions.identifierNamesGenerator = "mangled";
+  }
+  if (obfOptions.seed === undefined) {
+    obfOptions.seed = 12345;
+  }
+  if (obfOptions.disableConsoleOutput === undefined) {
+    obfOptions.disableConsoleOutput = false;
+  }
+  if (obfOptions.stringArrayThreshold === undefined) {
+    obfOptions.stringArrayThreshold = 0;
+  }
+  if (obfOptions.stringArrayThreshold === 0) {
+    obfOptions.stringArray = false;
+  }
+  if (obfOptions.renameGlobals === undefined) {
+    obfOptions.renameGlobals = false;
+  }
+  if (obfOptions.renameProperties === undefined) {
+    obfOptions.renameProperties = false;
+  }
+  if (obfOptions.stringArrayRotate === undefined) {
+    obfOptions.stringArrayRotate = false;
+  }
+  if (obfOptions.stringArrayShuffle === undefined) {
+    obfOptions.stringArrayShuffle = false;
+  }
+  if (obfOptions.stringArrayIndexShift === undefined) {
+    obfOptions.stringArrayIndexShift = false;
+  }
+  if (obfOptions.controlFlowFlattening === undefined) {
+    obfOptions.controlFlowFlattening = false;
+  }
+  if (obfOptions.deadCodeInjection === undefined) {
+    obfOptions.deadCodeInjection = false;
   }
 
   let workers = [];
@@ -328,16 +388,24 @@ function obfuscator(pluginOptions = {}) {
   const workerScript = `
     const { parentPort, workerData } = require("worker_threads");
     const JavaScriptObfuscator = require(workerData.pkgPath);
+    const baseOptions = workerData.defaultOptions || {};
+    try {
+      const warmup = Array(12).fill(0).map((_, i) => "export function _w" + i + "(a, b) { var x = { id: " + i + ", v: a + b }; switch(a) { case 1: return x.v * 2; default: return [x, { ...x }]; } }").join("\\n");
+      JavaScriptObfuscator.obfuscate(warmup, baseOptions);
+    } catch (_) {}
     parentPort.postMessage({ type: "ready" });
 
-    parentPort.on("message", ({ id, code, options }) => {
+    parentPort.on("message", ({ id, code, inputFileName }) => {
       try {
-        const res = JavaScriptObfuscator.obfuscate(code, options);
+        const t0 = performance.now();
+        const res = JavaScriptObfuscator.obfuscate(code, Object.assign({}, baseOptions, { inputFileName }));
+        const obfTime = performance.now() - t0;
         parentPort.postMessage({
           id,
           success: true,
           code: res.getObfuscatedCode(),
-          map: options.sourceMap ? res.getSourceMap() : null
+          map: baseOptions.sourceMap ? res.getSourceMap() : null,
+          obfTime
         });
       } catch (err) {
         parentPort.postMessage({
@@ -368,51 +436,62 @@ function obfuscator(pluginOptions = {}) {
     return pkgPath;
   }
 
+  let workersInitialized = false;
+  function initWorkers() {
+    if (workersInitialized) return;
+    workersInitialized = true;
+    const resolved = resolvePackage();
+    if (!resolved) {
+      if (verbose) {
+        console.warn("\x1b[33m!\x1b[0m [magnon] 'javascript-obfuscator' package not found. Skipping obfuscation. (Install it via 'pnpm add -D javascript-obfuscator')");
+      }
+      return;
+    }
+
+    const prewarmCount = mergedCriticalFragments.length > 0
+      ? Math.min(workerCount, mergedCriticalFragments.length)
+      : Math.min(workerCount, 4);
+
+    if (prewarmCount > 1) {
+      for (let i = 0; i < prewarmCount; i++) {
+        try {
+          const w = new Worker(workerScript, { eval: true, workerData: { pkgPath: resolved, defaultOptions: obfOptions } });
+          readyPromises.push(new Promise((res) => {
+            const onMsg = (msg) => {
+              if (msg && msg.type === "ready") {
+                w.off("message", onMsg);
+                res(w);
+              }
+            };
+            w.on("message", onMsg);
+          }));
+          workers.push(w);
+        } catch (_) {
+          break;
+        }
+      }
+    }
+  }
+
   return {
     name: "vite-plugin-magnon-obfuscator",
     apply: "build",
     enforce: "post",
 
+    configResolved() {
+      initWorkers();
+    },
+
     buildStart() {
-      const resolved = resolvePackage();
-      if (!resolved) {
-        if (verbose) {
-          console.warn("\x1b[33m!\x1b[0m [magnon] 'javascript-obfuscator' package not found. Skipping obfuscation. (Install it via 'pnpm add -D javascript-obfuscator')");
-        }
-        return;
-      }
-
-      const prewarmCount = mergedCriticalFragments.length > 0
-        ? Math.min(workerCount, mergedCriticalFragments.length)
-        : Math.min(workerCount, 4);
-
-      if (prewarmCount > 1) {
-        for (let i = 0; i < prewarmCount; i++) {
-          try {
-            const w = new Worker(workerScript, { eval: true, workerData: { pkgPath: resolved } });
-            readyPromises.push(new Promise((res) => {
-              const onMsg = (msg) => {
-                if (msg && msg.type === "ready") {
-                  w.off("message", onMsg);
-                  res(w);
-                }
-              };
-              w.on("message", onMsg);
-            }));
-            workers.push(w);
-          } catch (_) {
-            break;
-          }
-        }
-      }
+      initWorkers();
     },
 
     async generateBundle(outputOptions, bundle) {
       const resolved = resolvePackage();
       if (!resolved && !hasDebugProtection) return;
 
-      if (hasDebugProtection) {
-        const trap = createAntiDebugTrap(debugInterval);
+      const trap = hasDebugProtection ? createAntiDebugTrap(debugInterval) : "";
+      if (trap) {
         for (const output of Object.values(bundle)) {
           if (output && output.type === "chunk" && output.isEntry && typeof output.code === "string") {
             if (!output.code.includes("debu\"+\"gger") && !output.code.includes("debugger")) {
@@ -475,6 +554,8 @@ function obfuscator(pluginOptions = {}) {
 
       if (!resolved || tasks.length === 0) return;
 
+      tasks.sort((a, b) => b.output.code.length - a.output.code.length);
+
       const t0 = performance.now();
       const taskMap = new Map();
       tasks.forEach((t) => taskMap.set(t.fileName, t));
@@ -502,10 +583,11 @@ function obfuscator(pluginOptions = {}) {
             }
 
             const task = tasks[taskIdx++];
+            task.t0 = performance.now();
             worker.postMessage({
               id: task.fileName,
               code: task.output.code,
-              options: Object.assign({}, obfOptions, { inputFileName: task.fileName })
+              inputFileName: task.fileName
             });
           };
 
@@ -514,8 +596,12 @@ function obfuscator(pluginOptions = {}) {
               if (!msg || msg.type === "ready") return;
               const target = taskMap.get(msg.id);
               if (target) {
+                const chunkDt = msg.obfTime !== undefined ? msg.obfTime : (performance.now() - target.t0);
+                if (verbose) {
+                  console.log(`  [magnon] Chunk ${msg.id} (${(target.output.code.length / 1024).toFixed(1)} kB) obfuscated in ${chunkDt.toFixed(1)}ms`);
+                }
                 if (msg.success && msg.code) {
-                  target.output.code = msg.code;
+                  target.output.code = (trap && target.output.isEntry && !msg.code.includes('debu"+"gger')) ? trap + msg.code : msg.code;
                   if (msg.map && target.output.map) {
                     try { target.output.map = JSON.parse(msg.map); } catch (_) {}
                   }
@@ -558,7 +644,8 @@ function obfuscator(pluginOptions = {}) {
               task.output.code,
               Object.assign({}, obfOptions, { inputFileName: task.fileName })
             );
-            task.output.code = res.getObfuscatedCode();
+            const obfCode = res.getObfuscatedCode();
+            task.output.code = (trap && task.output.isEntry && !obfCode.includes('debu"+"gger')) ? trap + obfCode : obfCode;
             if (obfOptions.sourceMap && task.output.map) {
               const sm = res.getSourceMap();
               if (sm) {
@@ -603,20 +690,41 @@ function magnonPlugin(options = {}) {
   const modularizeImports = options.modularizeImports || {};
   const cache = new Map();
   let resolvedConfig;
+  let prewarmPromise = null;
 
   return {
     name: "vite-plugin-magnon",
     enforce: "pre",
 
     config(config) {
+      const rootDir = config?.root ? path.resolve(config.root) : process.cwd();
+      const nodeModulesPath = path.join(rootDir, "node_modules");
+      const srcPath = path.join(rootDir, "src");
+      const userScss = config?.css?.preprocessorOptions?.scss || {};
+      const userLoadPaths = Array.isArray(userScss.loadPaths) ? userScss.loadPaths : [];
+
       const cfg = {
         esbuild: false,
         oxc: false,
+        css: {
+          transformer: config?.css?.transformer ?? "lightningcss",
+          preprocessorMaxWorkers: config?.css?.preprocessorMaxWorkers ?? Math.min(os.cpus()?.length || 4, 8),
+          preprocessorOptions: {
+            scss: {
+              ...userScss,
+              loadPaths: Array.from(new Set([...userLoadPaths, nodeModulesPath, srcPath]))
+            }
+          }
+        },
         build: {
+          chunkSizeWarningLimit: 6000,
           rolldownOptions: {
             onwarn(warning, defaultHandler) {
-              if (warning.code === "MODULE_LEVEL_DIRECTIVE") return;
+              if (warning.code === "MODULE_LEVEL_DIRECTIVE" || warning.code === "EVAL" || warning.code === "INEFFECTIVE_DYNAMIC_IMPORT" || String(warning.code || "").includes("EVAL")) return;
               defaultHandler(warning);
+            },
+            output: {
+              comments: false
             }
           }
         }
@@ -662,60 +770,86 @@ function magnonPlugin(options = {}) {
 
     configResolved(config) {
       resolvedConfig = config;
-    },
-
-    buildStart() {
       if (!prewarm) return;
       const root = resolvedConfig?.root || process.cwd();
       const srcDir = path.join(root, "src");
       if (!fs.existsSync(srcDir)) return;
 
-      const collect = (dir) => {
-        const out = [];
-        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-          const full = path.join(dir, entry.name);
-          if (entry.isDirectory()) {
-            if (!entry.name.startsWith(".") && entry.name !== "node_modules") {
-              out.push(...collect(full));
+      prewarmPromise = (async () => {
+        try {
+          const preloads = [
+            import("sass-embedded").catch(() => {}),
+            import("postcss").catch(() => {})
+          ];
+          try {
+            const vitePkg = require.resolve("vite/package.json", { paths: [root, process.cwd()] });
+            const chunksDir = path.join(path.dirname(vitePkg), "dist", "node", "chunks");
+            if (fs.existsSync(chunksDir)) {
+              const pImport = path.join(chunksDir, "postcss-import.js");
+              if (fs.existsSync(pImport)) preloads.push(import(pImport).catch(() => {}));
+              const pBuild = path.join(chunksDir, "build.js");
+              if (fs.existsSync(pBuild)) preloads.push(import(pBuild).catch(() => {}));
             }
-          } else if (filter.test(entry.name)) {
-            out.push(full);
+          } catch (_) {}
+          Promise.all(preloads).catch(() => {});
+        } catch (_) {}
+
+        const collect = (dir) => {
+          const out = [];
+          for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            const full = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+              if (!entry.name.startsWith(".") && entry.name !== "node_modules") {
+                out.push(...collect(full));
+              }
+            } else if (filter.test(entry.name)) {
+              out.push(full);
+            }
+          }
+          return out;
+        };
+
+        const files = collect(srcDir);
+        if (files.length === 0) return;
+
+        const batchRes = transformBatch(files, {
+          jsxRuntime: options.jsxRuntime || "automatic",
+          development: options.development || false,
+          refresh: options.refresh || false,
+          sourcemap: options.sourcemap || false,
+          optimizePackageImports,
+          modularizeImports,
+        });
+
+        for (const item of batchRes.files) {
+          if (item.success && item.outputCode) {
+            cache.set(item.path, {
+              code: item.outputCode,
+              map: item.map ? JSON.parse(item.map) : null,
+            });
           }
         }
-        return out;
-      };
+      })();
+    },
 
-      const files = collect(srcDir);
-      if (files.length === 0) return;
-
-      const batchRes = transformBatch(files, {
-        jsxRuntime: options.jsxRuntime || "automatic",
-        development: options.development || false,
-        refresh: options.refresh || false,
-        sourcemap: options.sourcemap || false,
-        optimizePackageImports,
-        modularizeImports,
-      });
-
-      for (const item of batchRes.files) {
-        if (item.success && item.outputCode) {
-          cache.set(path.normalize(item.path), {
-            code: item.outputCode,
-            map: item.map ? JSON.parse(item.map) : null,
-          });
-        }
+    async buildStart() {
+      if (prewarmPromise) {
+        await prewarmPromise;
       }
     },
 
     transform(code, id) {
-      const cleanId = path.normalize(id.split("?")[0]);
-      if (exclude.test(cleanId) || !filter.test(cleanId)) {
+      if (id.charCodeAt(0) === 0 || id.includes("node_modules")) {
+        return null;
+      }
+      const qIdx = id.indexOf("?");
+      const cleanId = qIdx === -1 ? id : id.slice(0, qIdx);
+      if (!filter.test(cleanId)) {
         return null;
       }
 
       const cached = cache.get(cleanId);
-      if (cached) {
-        cache.delete(cleanId);
+      if (cached !== undefined) {
         return cached;
       }
 
@@ -738,11 +872,12 @@ function magnonPlugin(options = {}) {
     },
 
     renderChunk(code, chunk) {
-      if (typeof code === "string" && code.includes("__esModule")) {
-        const patched = patchRolldownCjsInteropCode(code);
-        if (patched !== code) {
-          return { code: patched, map: null };
-        }
+      if (!chunk || (!chunk.isEntry && (!chunk.fileName || !chunk.fileName.includes("runtime")))) return null;
+      if (typeof code !== "string" || code.length < 50) return null;
+      if (code.indexOf(".__esModule") === -1 || code.indexOf("__esModule|") === -1) return null;
+      const patched = patchRolldownCjsInteropCode(code);
+      if (patched !== code) {
+        return { code: patched, map: null };
       }
       return null;
     },
@@ -761,8 +896,8 @@ function magnonPlugin(options = {}) {
       const res = compressDirectory(outDir, {
         gzip: compressOpts.gzip !== false,
         brotli: compressOpts.brotli !== false,
-        gzipLevel: compressOpts.gzipLevel ?? 6,
-        brotliQuality: compressOpts.brotliQuality ?? 5,
+        gzipLevel: compressOpts.gzipLevel ?? 5,
+        brotliQuality: compressOpts.brotliQuality ? Math.min(compressOpts.brotliQuality, 3) : 3,
         threshold: compressOpts.threshold ?? 1024,
         extensions: compressOpts.extensions,
         deleteOriginal: compressOpts.deleteOriginal ?? false,
