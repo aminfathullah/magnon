@@ -1,6 +1,6 @@
 {
   "name": "magnon-monorepo",
-  "version": "0.1.21",
+  "version": "0.1.23",
   "private": true,
   "description": "High-throughput Rust TypeScript/JSX compiler, batch transformer, and Vite plugin monorepo",
   "scripts": {
