@@ -97,26 +97,6 @@ function codeSplitting(options = {}) {
     "data-vendor": {
       test: /\.json$/i,
       priority: 25
-    },
-    "pdf-vendor": {
-      test: ["@react-pdf", "pdfkit", "fontkit"],
-      priority: 25
-    },
-    "presentation-vendor": {
-      test: ["spectacle"],
-      priority: 25
-    },
-    "icons-vendor": {
-      test: ["@tabler/icons-react", "react-icons", "lucide-react", "@lucide/react"],
-      priority: 32
-    },
-    "chart-vendor": {
-      test: ["echarts", "zrender", "echarts-for-react", "apexcharts", "react-apexcharts", "chart.js", "react-chartjs-2", "recharts", "d3", "d3-geo"],
-      priority: 25
-    },
-    "slider-vendor": {
-      test: ["slick-carousel", "react-slick", "swiper"],
-      priority: 25
     }
   } : {};
   const chunks = Object.assign({}, defaultVendors, options.chunks || (options.vendors ? options.vendors : {}));
@@ -244,7 +224,7 @@ function patchRolldownCjsInteropCode(code) {
 function fixRolldownCjsInterop(bundle) {
   if (!bundle || typeof bundle !== "object") return;
   for (const chunk of Object.values(bundle)) {
-    if (!chunk || chunk.type !== "chunk" || (!chunk.isEntry && (!chunk.fileName || !chunk.fileName.includes("runtime")))) continue;
+    if (!chunk || chunk.type !== "chunk") continue;
     if (typeof chunk.code !== "string" || chunk.code.length < 50) continue;
     if (!chunk.code.includes(".__esModule") || !chunk.code.includes(".call(")) continue;
     chunk.code = patchRolldownCjsInteropCode(chunk.code);
@@ -473,17 +453,123 @@ function obfuscator(pluginOptions = {}) {
     }
   }
 
+  let nextWorkerIdx = 0;
+  async function obfuscateWithWorker(code, filename) {
+    initWorkers();
+    const resolved = resolvePackage();
+    if (!resolved) return { code };
+
+    if (workers.length > 0) {
+      const wIdx = nextWorkerIdx++ % workers.length;
+      const worker = workers[wIdx];
+      await readyPromises[wIdx];
+      return new Promise((resolve) => {
+        const onMsg = (msg) => {
+          if (msg && msg.id === filename) {
+            worker.off("message", onMsg);
+            worker.off("error", onErr);
+            resolve(msg.success && msg.code ? { code: msg.code, map: msg.map } : { code });
+          }
+        };
+        const onErr = () => {
+          worker.off("message", onMsg);
+          worker.off("error", onErr);
+          resolve({ code });
+        };
+        worker.on("message", onMsg);
+        worker.on("error", onErr);
+        worker.postMessage({ id: filename, code, inputFileName: filename });
+      });
+    }
+
+    const JavaScriptObfuscator = require(resolved);
+    try {
+      const res = JavaScriptObfuscator.obfuscate(code, Object.assign({}, obfOptions, { inputFileName: filename }));
+      return { code: res.getObfuscatedCode(), map: obfOptions.sourceMap ? res.getSourceMap() : null };
+    } catch (_) {
+      return { code };
+    }
+  }
+
+  const obfuscatedModules = new Set();
+  const moduleObfCache = new Map();
+
+  function prewarmCriticalModules(rootDir) {
+    if (!mergedCriticalFragments.length) return;
+    const srcDir = path.join(rootDir, "src");
+    if (!fs.existsSync(srcDir)) return;
+
+    const findMatches = (dir) => {
+      const matches = [];
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (!entry.name.startsWith(".") && entry.name !== "node_modules") {
+            matches.push(...findMatches(full));
+          }
+        } else if (/\.[jt]sx?$/.test(entry.name)) {
+          const norm = full.split(path.sep).join("/");
+          if (mergedCriticalFragments.some((frag) => norm.includes(frag))) {
+            matches.push(full);
+          }
+        }
+      }
+      return matches;
+    };
+
+    const targetFiles = findMatches(srcDir);
+    for (const file of targetFiles) {
+      const norm = file.split(path.sep).join("/");
+      (async () => {
+        try {
+          const raw = fs.readFileSync(file, "utf8");
+          const transformed = transform(raw, file, { jsxRuntime: "automatic", development: false });
+          const code = transformed && transformed.code ? transformed.code : raw;
+          const res = await obfuscateWithWorker(code, norm);
+          moduleObfCache.set(norm, res);
+          obfuscatedModules.add(norm);
+        } catch (_) {}
+      })();
+    }
+  }
+
   return {
     name: "vite-plugin-magnon-obfuscator",
     apply: "build",
     enforce: "post",
 
-    configResolved() {
+    configResolved(config) {
       initWorkers();
+      const root = config?.root ? path.resolve(config.root) : process.cwd();
+      prewarmCriticalModules(root);
     },
 
     buildStart() {
       initWorkers();
+    },
+
+    transform: {
+      filter: { id: /\.[jt]sx?$/ },
+      async handler(code, id) {
+        if (!mergedCriticalFragments.length || id.includes("node_modules")) return null;
+        const norm = id.split(path.sep).join("/");
+        const isCritical = mergedCriticalFragments.some((frag) => norm.includes(frag));
+        if (!isCritical) return null;
+
+        if (moduleObfCache.has(norm)) {
+          const cached = moduleObfCache.get(norm);
+          return { code: cached.code, map: cached.map || null };
+        }
+
+        const t0 = performance.now();
+        const res = await obfuscateWithWorker(code, norm);
+        obfuscatedModules.add(norm);
+        if (verbose) {
+          const dt = performance.now() - t0;
+          console.log(`  \x1b[32m✓\x1b[0m [magnon] Module ${path.basename(norm)} (${(code.length / 1024).toFixed(1)} kB) obfuscated in ${dt.toFixed(1)}ms`);
+        }
+        return { code: res.code, map: res.map || null };
+      }
     },
 
     async generateBundle(outputOptions, bundle) {
@@ -510,8 +596,8 @@ function obfuscator(pluginOptions = {}) {
         }
 
         const mods = Object.keys(output.modules || {}).map(normalize);
-        const isCritical = mergedCriticalFragments.length > 0 && mergedCriticalFragments.some((frag) =>
-          mods.some((m) => m.includes(frag)) || fileName.includes(frag)
+        const hasUnobfuscatedCritical = mergedCriticalFragments.length > 0 && mods.some((m) =>
+          mergedCriticalFragments.some((frag) => m.includes(frag)) && !obfuscatedModules.has(m)
         );
 
         if (exclude && (matchesPattern(fileName, exclude) || mods.some((m) => matchesPattern(m, exclude)))) {
@@ -522,7 +608,7 @@ function obfuscator(pluginOptions = {}) {
           || /(?:^|[._/-])vendor(?:[._/-]|$)/i.test(fileName);
         const allModulesVendor = mods.length > 0 && mods.every((m) => m.includes("/node_modules/"));
 
-        if (isCritical) {
+        if (hasUnobfuscatedCritical) {
           if (!isVendorChunk && !allModulesVendor) {
             tasks.push({ fileName, output });
           }
@@ -782,16 +868,6 @@ function magnonPlugin(options = {}) {
             import("sass-embedded").catch(() => {}),
             import("postcss").catch(() => {})
           ];
-          try {
-            const vitePkg = require.resolve("vite/package.json", { paths: [root, process.cwd()] });
-            const chunksDir = path.join(path.dirname(vitePkg), "dist", "node", "chunks");
-            if (fs.existsSync(chunksDir)) {
-              const pImport = path.join(chunksDir, "postcss-import.js");
-              if (fs.existsSync(pImport)) preloads.push(import(pImport).catch(() => {}));
-              const pBuild = path.join(chunksDir, "build.js");
-              if (fs.existsSync(pBuild)) preloads.push(import(pBuild).catch(() => {}));
-            }
-          } catch (_) {}
           Promise.all(preloads).catch(() => {});
         } catch (_) {}
 
@@ -994,8 +1070,7 @@ function magnonPlugin(options = {}) {
     renderChunk: {
       filter: { code: /__esModule/ },
       handler(code, chunk) {
-        if (!chunk || (!chunk.isEntry && (!chunk.fileName || !chunk.fileName.includes("runtime")))) return null;
-        if (typeof code !== "string" || code.length < 50) return null;
+        if (!chunk || typeof code !== "string" || code.length < 50) return null;
         if (code.indexOf(".__esModule") === -1 || code.indexOf("__esModule|") === -1) return null;
         const patched = patchRolldownCjsInteropCode(code);
         if (patched !== code) {
